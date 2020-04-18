@@ -74,8 +74,10 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         
         let videoOutput = AVCaptureVideoDataOutput()
+        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA]
         
         let dataOutputQueue = frontCameraQueue
+        
         
         videoOutput.setSampleBufferDelegate(self,
                                             queue: dataOutputQueue)
@@ -164,10 +166,6 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                     self.rptCurrentFrame = pixelBuffer
                 }
                 rptfpsDebugCount += 1
-            }
-            
-            frontCameraQueue.async {
-                print("");
             }
             
         } else {
