@@ -15,7 +15,7 @@ func allocOutputBufferPool(with inputDescription:CMFormatDescription, outputReta
         
         let inputMediaSubType = CMFormatDescriptionGetMediaSubType(inputDescription)
         if inputMediaSubType != kCVPixelFormatType_32BGRA {
-            assertionFailure("Invalid input pixel buffer type \(inputMediaSubType)")
+            assertionFailure("Pixel type \(inputMediaSubType) is invalid")
             return (nil, nil, nil)
         }
         
@@ -62,7 +62,6 @@ func allocOutputBufferPool(with inputDescription:CMFormatDescription, outputReta
         }
         preallocateBuffers(pool: pixelBufferPool, allocationThreshold: outputRetainedBufferCountHint)
         
-        // Get the output format description
         var pixelBuffer: CVPixelBuffer?
         var outputFormatDescription: CMFormatDescription?
         let auxAttributes = [kCVPixelBufferPoolAllocationThresholdKey as String: outputRetainedBufferCountHint] as NSDictionary

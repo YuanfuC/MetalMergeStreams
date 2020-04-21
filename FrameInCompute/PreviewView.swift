@@ -1,9 +1,10 @@
-/*
-See LICENSE folder for this sample’s licensing information.
-
-Abstract:
-The camera preview view that displays the capture output.
-*/
+//
+//  AppDelegate.swift
+//  FrameInCompute
+//
+//  Created by ChenYuanfu on 2020/4/17.
+//  Copyright © 2020 ChenYuanfu. All rights reserved.
+//
 
 import UIKit
 import AVFoundation
@@ -12,7 +13,7 @@ class PreviewView: UIView {
     
     var videoPreviewLayer: AVCaptureVideoPreviewLayer {
         guard let layer = self.layer as? AVCaptureVideoPreviewLayer else {
-            fatalError("Expected `AVCaptureVideoPreviewLayer` type for layer. Check PreviewView.layerClass implementation.")
+            fatalError("Preview layer not exist")
         }
         return layer
     }

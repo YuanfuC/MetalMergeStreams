@@ -16,6 +16,8 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     let processLable = UILabel.init()
     let rtpFpsLabel = UILabel.init()
     let frontCameraFpsLable = UILabel.init()
+    let recordingLable = UILabel.init()
+    let recordingButton = UIButton.init(type: .custom)
     let session = AVCaptureSession()
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
@@ -24,56 +26,64 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                                          qos: .userInitiated,
                                          attributes: [],
                                          autoreleaseFrequency: .workItem)
+    let videoSavingQueue = DispatchQueue.init(label: "Saving-video")
     
     var rptCurrentFrame: CVPixelBuffer? = nil
     var mixer = FrameMixer()
+    
+    var videoWriter:AVAssetWriter? = nil
+    var videoInput:AVAssetWriterInput? = nil
+    var videoInputAdaptor:AVAssetWriterInputPixelBufferAdaptor? = nil
+    var isRecording:Bool = false
     
     override func viewDidLoad() {
         super.viewDidLoad()
         
         setupUIComponents()
         setupMixerFrameConfig()
-        self.configCamera()
+        launchCamera()
         startReadVideo()
+        configVideoCreator()
     }
     
-    func setupUIComponents() {
-        let rtpViewWidth = UIScreen.main.bounds.width * 0.9
-        let rtpViewHeight = rtpViewWidth/(1280/720)
-        rtpView.frame = CGRect.init(x: 0, y: 0, width: rtpViewWidth, height: rtpViewHeight)
-        rtpView.center = self.view.center
-        rtpView.backgroundColor = UIColor.blue
-        let previewWidth = rtpViewWidth * 0.25
-        let previewHeight = previewWidth/(1280/720)
-        preview.frame = CGRect.init(x: rtpViewWidth - previewWidth - 20,
-                                    y: rtpViewHeight - previewHeight - 20,
-                                    width: previewWidth, height: previewHeight)
-        preview.backgroundColor = UIColor.yellow
-        self.view.backgroundColor = UIColor.gray
-        self.view.addSubview(rtpView)
-        rtpView.addSubview(preview)
-        processLable.frame = CGRect.init(x: 10, y: 5, width: 200, height: 20)
-        processLable.textColor = UIColor.red
+    func configVideoCreator(){
+        (videoWriter, videoInput) = initVideoWriter()
+        guard let writer = videoWriter,
+            let input = videoInput else {
+                print("Video writer is not exist")
+                return
+        }
         
-        rtpFpsLabel.frame = CGRect.init(x: 10, y: 5 + 5 + 20, width: 200, height: 20)
-        rtpFpsLabel.textColor = UIColor.blue
+        var videoWriterInputPixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+        let sourcePixelBufferAttributes = [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 1280,
+            kCVPixelBufferHeightKey as String: 720
+        ]
         
-        frontCameraFpsLable.frame = CGRect.init(x: 10, y: 5 + (5 + 20) * 2, width: 200, height: 20)
-        frontCameraFpsLable.textColor = UIColor.green
-        rtpView.addSubview(processLable)
-        rtpView.addSubview(rtpFpsLabel)
-        rtpView.addSubview(frontCameraFpsLable)
+        videoWriterInputPixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: input,
+            sourcePixelBufferAttributes: sourcePixelBufferAttributes
+        )
+        
+        guard let adaptor = videoWriterInputPixelBufferAdaptor else {
+            print("Adaptor create failed")
+            assert(false)
+            return
+        }
+        assert(writer.startWriting())
+        writer.startSession(atSourceTime: CMTime.init(value: 0, timescale: 1))
+        videoInputAdaptor = adaptor
     }
     
     func setupMixerFrameConfig(){
         let normalizedTransform = CGAffineTransform(scaleX: 1.0 / rtpView.frame.width,
                                                     y: 1.0 / rtpView.frame.height)
         let frame = preview.frame.applying(normalizedTransform)
-        
         self.mixer.inFrame = frame
     }
     
-    func configCamera() {
+    func launchCamera() {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
             
             print("Get camera failed")
@@ -183,6 +193,47 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             return (reader, output)
     }
     
+    func createDocPositionURL(_ fileName:String) -> URL? {
+        
+        guard let dirPath = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).last else {
+            return nil
+        }
+        let filePath = dirPath + "/" + fileName
+        return URL.init(fileURLWithPath: filePath)
+    }
+    
+    func initVideoWriter() -> (writer:AVAssetWriter?, videoInput:AVAssetWriterInput?) {
+        
+        guard let fileURL = createDocPositionURL("resultVideo.mp4") else {
+            assert(false)
+            return (nil, nil)
+        }
+        
+        
+        do {
+            try FileManager.default.removeItem(at: fileURL)
+            print("remove file success")
+        } catch {
+            print("remove file \(error)")
+        }
+        
+        let assetWriter = try! AVAssetWriter.init(url: fileURL, fileType: .mp4)
+        
+        let videoConfig = [AVVideoCodecKey: AVVideoCodecType.h264,
+                           AVVideoWidthKey: NSNumber(1280),
+                           AVVideoHeightKey:NSNumber(720)] as [String : Any]
+        
+        let videoAssetInput = AVAssetWriterInput.init(mediaType: .video, outputSettings: videoConfig)
+        
+        
+        if assetWriter.canAdd(videoAssetInput) {
+            assetWriter.add(videoAssetInput)
+        } else {
+            assert(false)
+        }
+        
+        return (assetWriter, videoAssetInput)
+    }
     
     var rtpfpsDebugDate =  NSDate()
     var rptfpsDebugCount:NSInteger  = 0;
@@ -205,6 +256,10 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                     let layer = self.rtpView.layer as! AVSampleBufferDisplayLayer
                     layer.enqueue(sample);
                 }
+                
+                var timeInfo:CMSampleTimingInfo = CMSampleTimingInfo.init()
+                CMSampleBufferGetSampleTimingInfo(sample, at: 0, timingInfoOut: &timeInfo)
+                
                 
                 if -rtpfpsDebugDate.timeIntervalSinceNow >= 1.0 {
                     DispatchQueue.main.sync {
@@ -252,11 +307,19 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         }
         
         let date = NSDate()
-        let buffer = mixer.mixFrame(rptBuffer, pixelBuffer)
+        let mixedBuffer = mixer.mixFrame(rptBuffer, pixelBuffer)
         
         DispatchQueue.main.sync {
             processLable.text = String.init(format: "process %.02f ms", -date.timeIntervalSinceNow * 1000)
         }
+        
+        if let buffer = mixedBuffer,
+            isRecording {
+            videoSavingQueue.async {
+                self.savingVideo(pixelBuffer: buffer)
+            }
+        }
+        
         
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
             DispatchQueue.main.sync {
@@ -266,6 +329,87 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             fpsDebugDate = NSDate();
         }
         fpsDebugCount += 1
+    }
+    
+    var videoTimeSeconds = 0.0
+    
+    func savingVideo(pixelBuffer:CVPixelBuffer) {
+        guard let adaptor = videoInputAdaptor else {
+            print("Video adaptor not exsit")
+            return
+        }
+        
+        guard let writer = videoWriter else {
+            print("Video wirter not exsit")
+            return
+        }
+        
+        var formatDescription:CMVideoFormatDescription? = nil
+        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &formatDescription)
+        
+        let cmTime = CMTime.init(seconds: videoTimeSeconds, preferredTimescale: 600)
+        videoTimeSeconds += 1.0/30.0
+        
+        
+        if (adaptor.append(pixelBuffer, withPresentationTime: cmTime) == false) {
+            print("error:\(String(describing: writer.error))")
+            assert(false)
+        } else {
+            print(String(format: "success append frame: %03f\n", cmTime.seconds))
+        }
+    }
+    
+    func setupUIComponents() {
+        let rtpViewWidth = UIScreen.main.bounds.width * 0.9
+        let rtpViewHeight = rtpViewWidth/(1280/720)
+        rtpView.frame = CGRect.init(x: 0, y: 0, width: rtpViewWidth, height: rtpViewHeight)
+        rtpView.center = self.view.center
+        rtpView.backgroundColor = UIColor.blue
+        let previewWidth = rtpViewWidth * 0.25
+        let previewHeight = previewWidth/(1280/720)
+        preview.frame = CGRect.init(x: rtpViewWidth - previewWidth - 20,
+                                    y: rtpViewHeight - previewHeight - 20,
+                                    width: previewWidth, height: previewHeight)
+        preview.backgroundColor = UIColor.yellow
+        self.view.backgroundColor = UIColor.gray
+        self.view.addSubview(rtpView)
+        rtpView.addSubview(preview)
+        processLable.frame = CGRect.init(x: 10, y: 5, width: 200, height: 20)
+        processLable.textColor = UIColor.red
+        
+        rtpFpsLabel.frame = CGRect.init(x: 10, y: 5 + 5 + 20, width: 200, height: 20)
+        rtpFpsLabel.textColor = UIColor.blue
+        
+        frontCameraFpsLable.frame = CGRect.init(x: 10, y: 5 + (5 + 20) * 2, width: 200, height: 20)
+        frontCameraFpsLable.textColor = UIColor.green
+        rtpView.addSubview(processLable)
+        rtpView.addSubview(rtpFpsLabel)
+        rtpView.addSubview(frontCameraFpsLable)
+        
+        recordingButton.frame = CGRect.init(x: 40, y: UIScreen.main.bounds.size.height - 60, width: 80, height: 44)
+        self.view.addSubview(recordingButton)
+        recordingButton.setTitle("Record", for: .normal)
+        recordingButton.addTarget(self, action: #selector(buttonClick), for: .touchUpInside)
+        recordingButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        recordingButton.setTitleColor(UIColor.orange, for: .normal)
+    }
+    
+    @objc func  buttonClick() {
+        
+        let title = self.isRecording ? "stop": "Recording"
+        recordingButton.setTitle(title, for: .normal)
+        
+        videoSavingQueue.async {
+            if (self.isRecording) {
+                self.videoWriter?.finishWriting {
+                    print("Write video success")
+                    DispatchQueue.main.sync {
+                        self.recordingButton.isEnabled = false;
+                    }
+                }
+            }
+            self.isRecording = !self.isRecording
+        }
     }
     
 }

@@ -11,7 +11,6 @@ import MetalKit
 
 class FrameMixer: NSObject {
     
-    /// A normalized CGRect representing the position and size of the PiP in relation to the full screen video preview
     var inFrame = CGRect.zero
     
     private let metalDevice:MTLDevice? = MTLCreateSystemDefaultDevice()
@@ -74,8 +73,8 @@ class FrameMixer: NSObject {
     }
     
     struct MixerParameters {
-        var pipPosition: SIMD2<Float>
-        var pipSize: SIMD2<Float>
+        var position: SIMD2<Float>
+        var size: SIMD2<Float>
     }
     
     func mixFrame(_ buffer1:CVPixelBuffer, _ buffer2:CVPixelBuffer) ->CVPixelBuffer? {
@@ -101,7 +100,7 @@ class FrameMixer: NSObject {
         
         let inFramePosition = SIMD2(Float(inFrame.origin.x) * Float(buffer1Texture.width), Float(inFrame.origin.y) * Float(buffer1Texture.height))
         let inFrameSize = SIMD2(Float(inFrame.size.width) * Float(buffer2Texture.width), Float(inFrame.size.height) * Float(buffer2Texture.height))
-        var parameters = MixerParameters(pipPosition: inFramePosition, pipSize: inFrameSize)
+        var parameters = MixerParameters(position: inFramePosition, size: inFrameSize)
         
         
         guard let commandQueue = self.commandQueue,
