@@ -14,6 +14,8 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     let preview = PreviewView.init()
     let rtpView = DisplayView.init()
     let processLable = UILabel.init()
+    let rtpFpsLabel = UILabel.init()
+    let frontCameraFpsLable = UILabel.init()
     let session = AVCaptureSession()
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
@@ -50,9 +52,17 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         self.view.backgroundColor = UIColor.gray
         self.view.addSubview(rtpView)
         rtpView.addSubview(preview)
-        processLable.frame = CGRect.init(x: 0, y: 0, width: 200, height: 40)
+        processLable.frame = CGRect.init(x: 10, y: 5, width: 200, height: 20)
         processLable.textColor = UIColor.red
+        
+        rtpFpsLabel.frame = CGRect.init(x: 10, y: 5 + 5 + 20, width: 200, height: 20)
+        rtpFpsLabel.textColor = UIColor.blue
+        
+        frontCameraFpsLable.frame = CGRect.init(x: 10, y: 5 + (5 + 20) * 2, width: 200, height: 20)
+        frontCameraFpsLable.textColor = UIColor.green
         rtpView.addSubview(processLable)
+        rtpView.addSubview(rtpFpsLabel)
+        rtpView.addSubview(frontCameraFpsLable)
     }
     
     func setupMixerFrameConfig(){
@@ -197,7 +207,9 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                 }
                 
                 if -rtpfpsDebugDate.timeIntervalSinceNow >= 1.0 {
-                    print("Camera count", rptfpsDebugCount);
+                    DispatchQueue.main.sync {
+                        rtpFpsLabel.text = String.init(format: "RTP FPS: %d", rptfpsDebugCount)
+                    }
                     rptfpsDebugCount = 0;
                     rtpfpsDebugDate = NSDate();
                 }
@@ -243,11 +255,13 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         let buffer = mixer.mixFrame(rptBuffer, pixelBuffer)
         
         DispatchQueue.main.sync {
-            processLable.text = String.init(format: "Process time %.02f ms", -date.timeIntervalSinceNow * 1000)
+            processLable.text = String.init(format: "process %.02f ms", -date.timeIntervalSinceNow * 1000)
         }
         
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
-            print("BFD_ buffer count", fpsDebugCount);
+            DispatchQueue.main.sync {
+                frontCameraFpsLable.text = String.init(format: "Camera FPS: %d", fpsDebugCount)
+            }
             fpsDebugCount = 0;
             fpsDebugDate = NSDate();
         }
