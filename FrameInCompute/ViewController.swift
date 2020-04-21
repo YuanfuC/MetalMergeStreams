@@ -12,8 +12,10 @@ import AVFoundation
 class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
     
     let preview = PreviewView.init()
+    let rtpView = DisplayView.init()
     let session = AVCaptureSession()
-    let output = AVCaptureMetadataOutput()
+    var rtpVideoReader: AVAssetReader?
+    var rtpOutput: AVAssetReaderVideoCompositionOutput?
     let rtpBufferQueue = DispatchQueue.init(label: "RTP-buffer")
     let frontCameraQueue = DispatchQueue(label: "Front-camera-buffer",
                                          qos: .userInitiated,
@@ -21,23 +23,42 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                                          autoreleaseFrequency: .workItem)
     
     var rptCurrentFrame: CVPixelBuffer? = nil
-    
+    var mixer = FrameMixer()
     
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view.
         print("GET START")
         
-        self.view.addSubview(preview)
-        preview.frame = CGRect.init(x: 0, y: 0, width: UIScreen.main.bounds.height * 0.75 / (1280/720), height: UIScreen.main.bounds.height * 0.75)
-        preview.center = self.view.center
-        self.view.backgroundColor = UIColor.gray
+        let rtpViewWidth = UIScreen.main.bounds.width * 0.9
+        let rtpViewHeight = rtpViewWidth/(1280/720)
+        rtpView.frame = CGRect.init(x: 0, y: 0, width: rtpViewWidth, height: rtpViewHeight)
+        rtpView.center = self.view.center
+        rtpView.backgroundColor = UIColor.blue
         
+        let previewWidth = rtpViewWidth * 0.25
+        let previewHeight = previewWidth/(1280/720)
+        preview.frame = CGRect.init(x: rtpViewWidth - previewWidth - 20,
+                                    y: rtpViewHeight - previewHeight - 20,
+                                    width: previewWidth, height: previewHeight)
+        preview.backgroundColor = UIColor.yellow
+        
+        self.view.backgroundColor = UIColor.gray
+        self.view.addSubview(rtpView)
+        rtpView.addSubview(preview)
+        
+        setupMixerFrameConfig()
         
         self.configCamera()
-        
-        
         startReadVideo()
+    }
+    
+    func setupMixerFrameConfig(){
+        let normalizedTransform = CGAffineTransform(scaleX: 1.0 / rtpView.frame.width,
+                                                    y: 1.0 / rtpView.frame.height)
+        let frame = preview.frame.applying(normalizedTransform)
+        
+        self.mixer.inFrame = frame
     }
     
     func configCamera() {
@@ -67,10 +88,12 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         session.commitConfiguration()
         
-        let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
-        preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
+        
         
         preview.session = session
+        
+        let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
+        preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
         
         
         let videoOutput = AVCaptureVideoDataOutput()
@@ -108,14 +131,19 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                 print("init video reader failed")
                 return;
         }
+        
+        self.rtpOutput = output
+        self.rtpVideoReader = reader
+        
         assert(reader.startReading())
         
         var isFinish = false
         
+        
         rtpBufferQueue.async {
             while !isFinish {
-                self.copyFrameVideoVideo(output, &isFinish)
-                Thread.sleep(forTimeInterval:1.0/100.0)
+                self.copyFrameVideoVideo(&isFinish)
+                Thread.sleep(forTimeInterval:1.0/30.0)
             }
         }
     }
@@ -147,14 +175,23 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     var rtpfpsDebugDate =  NSDate()
     var rptfpsDebugCount:NSInteger  = 0;
     
-    func copyFrameVideoVideo(_ output:AVAssetReaderVideoCompositionOutput,
-                             _ isFinish:inout Bool) {
+    func copyFrameVideoVideo(_ isFinish:inout Bool) {
         
-        if let sample = output.copyNextSampleBuffer() {
+        guard let videoOutput = self.rtpOutput else {
+            print("RTP video out put is not exist")
+            return
+        }
+        
+        if let sample = videoOutput.copyNextSampleBuffer() {
             autoreleasepool{
                 guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else {
                     print("RTP sample is nil")
                     return
+                }
+                
+                DispatchQueue.main.async {
+                    let layer = self.rtpView.layer as! AVSampleBufferDisplayLayer
+                    layer.enqueue(sample);
                 }
                 
                 if -rtpfpsDebugDate.timeIntervalSinceNow >= 1.0 {
@@ -185,10 +222,27 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             return
         }
         
+        
         guard let rptBuffer = self.rptCurrentFrame else {
             print("RTP pixel buffer not exist")
             return
         }
+        
+        if !mixer.isPrepared {
+            
+            guard let des = CMSampleBufferGetFormatDescription(sampleBuffer) else {
+                print("Get buffer des failed")
+                return
+            }
+            mixer.prepare(with: des, outputRetainedBufferCountHint: 3)
+        }
+        
+        let date = NSDate()
+        let buffer = mixer.mixFrame(rptBuffer, pixelBuffer)
+        
+        
+        print("Process image cost:", -date.timeIntervalSinceNow * 1000)
+        
         
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
             print("BFD_ buffer count", fpsDebugCount);
