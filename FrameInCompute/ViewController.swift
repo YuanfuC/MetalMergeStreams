@@ -13,6 +13,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     
     let preview = PreviewView.init()
     let rtpView = DisplayView.init()
+    let processLable = UILabel.init()
     let session = AVCaptureSession()
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
@@ -27,30 +28,31 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Do any additional setup after loading the view.
-        print("GET START")
         
+        setupUIComponents()
+        setupMixerFrameConfig()
+        self.configCamera()
+        startReadVideo()
+    }
+    
+    func setupUIComponents() {
         let rtpViewWidth = UIScreen.main.bounds.width * 0.9
         let rtpViewHeight = rtpViewWidth/(1280/720)
         rtpView.frame = CGRect.init(x: 0, y: 0, width: rtpViewWidth, height: rtpViewHeight)
         rtpView.center = self.view.center
         rtpView.backgroundColor = UIColor.blue
-        
         let previewWidth = rtpViewWidth * 0.25
         let previewHeight = previewWidth/(1280/720)
         preview.frame = CGRect.init(x: rtpViewWidth - previewWidth - 20,
                                     y: rtpViewHeight - previewHeight - 20,
                                     width: previewWidth, height: previewHeight)
         preview.backgroundColor = UIColor.yellow
-        
         self.view.backgroundColor = UIColor.gray
         self.view.addSubview(rtpView)
         rtpView.addSubview(preview)
-        
-        setupMixerFrameConfig()
-        
-        self.configCamera()
-        startReadVideo()
+        processLable.frame = CGRect.init(x: 0, y: 0, width: 200, height: 40)
+        processLable.textColor = UIColor.red
+        rtpView.addSubview(processLable)
     }
     
     func setupMixerFrameConfig(){
@@ -240,9 +242,9 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         let date = NSDate()
         let buffer = mixer.mixFrame(rptBuffer, pixelBuffer)
         
-        
-        print("Process image cost:", -date.timeIntervalSinceNow * 1000)
-        
+        DispatchQueue.main.sync {
+            processLable.text = String.init(format: "Process time %.02f ms", -date.timeIntervalSinceNow * 1000)
+        }
         
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
             print("BFD_ buffer count", fpsDebugCount);
