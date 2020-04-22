@@ -76,7 +76,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     }
     
     func startReadVideo() -> Void {
-        guard let path = Bundle.main.path(forResource: "rptVideo", ofType: "mp4") else {
+        guard let path = Bundle.main.path(forResource: "rtpVideo", ofType: "mp4") else {
             print("Video file not exist")
             return
         }
@@ -219,7 +219,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         let mixedBuffer = mixer.mixFrame(rptBuffer, pixelBuffer)
         
         DispatchQueue.main.sync {
-            processLable.text = String.init(format: "process %.02f ms", -date.timeIntervalSinceNow * 1000)
+            processLable.text = String.init(format: "mix: %.02f ms", -date.timeIntervalSinceNow * 1000)
         }
         
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
@@ -273,7 +273,7 @@ extension ViewController {
         recordingButton.setTitleColor(UIColor.systemPink, for: .normal)
         
         let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
-        self.rtpView.addGestureRecognizer(gesture)
+        self.preview.addGestureRecognizer(gesture)
     }
     
     @objc func gestureCallback(ges: UIGestureRecognizer){
