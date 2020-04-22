@@ -22,6 +22,7 @@
 		324D5239244E968100F8F042 /* FrameMixShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = 324D5238244E968100F8F042 /* FrameMixShaders.metal */; };
 		324D523E244EA74100F8F042 /* GCDWebServers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 324D523A244EA44F00F8F042 /* GCDWebServers.framework */; };
 		324D523F244EA74100F8F042 /* GCDWebServers.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 324D523A244EA44F00F8F042 /* GCDWebServers.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		324D5243244FE05200F8F042 /* DeviceCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324D5242244FE05200F8F042 /* DeviceCapture.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -76,6 +77,7 @@
 		324D5236244E8DBB00F8F042 /* DisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DisplayView.swift; sourceTree = "<group>"; };
 		324D5238244E968100F8F042 /* FrameMixShaders.metal */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.metal; path = FrameMixShaders.metal; sourceTree = "<group>"; };
 		324D523A244EA44F00F8F042 /* GCDWebServers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GCDWebServers.framework; path = FrameInCompute/GCDWebServers.framework; sourceTree = "<group>"; };
+		324D5242244FE05200F8F042 /* DeviceCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceCapture.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -141,6 +143,7 @@
 				324D5238244E968100F8F042 /* FrameMixShaders.metal */,
 				324D4AE7244AFFB300F8F042 /* FrameMixer.swift */,
 				324D4E8E244D743E00F8F042 /* MixerUtilities.swift */,
+				324D5242244FE05200F8F042 /* DeviceCapture.swift */,
 			);
 			path = FrameInCompute;
 			sourceTree = "<group>";
@@ -305,6 +308,7 @@
 			files = (
 				324D4E8F244D743E00F8F042 /* MixerUtilities.swift in Sources */,
 				324D5237244E8DBB00F8F042 /* DisplayView.swift in Sources */,
+				324D5243244FE05200F8F042 /* DeviceCapture.swift in Sources */,
 				324D470F2449927C00F8F042 /* ViewController.swift in Sources */,
 				324D470B2449927C00F8F042 /* AppDelegate.swift in Sources */,
 				324D4AE8244AFFB300F8F042 /* FrameMixer.swift in Sources */,

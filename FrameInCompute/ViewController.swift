@@ -10,7 +10,7 @@ import UIKit
 import AVFoundation
 import Photos
 
-class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
+class ViewController: UIViewController, CaptureDataOutputDelegate {
     
     let preview = PreviewView.init()
     let rtpView = DisplayView.init()
@@ -20,11 +20,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     let recordingLable = UILabel.init()
     let recordingButton = UIButton.init(type: .custom)
     
-    let cameraSession = AVCaptureSession()
-    let cameraOutput = AVCaptureVideoDataOutput()
-    let microphoneOutput = AVCaptureAudioDataOutput()
-    var microphoneDeviceInput: AVCaptureDeviceInput?
-    
+    let deviceCapture = DeviceCapture()
     
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
@@ -49,8 +45,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         setupUIComponents()
         setupMixerFrameConfig()
-        launchMicrophone()
-        launchCamera()
+        launchDevices()
         startReadVideo()
         configVideoCreator()
     }
@@ -90,86 +85,23 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         self.mixer.inFrame = frame
     }
     
-    func launchMicrophone() {
-        cameraSession.beginConfiguration()
-        
-        guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
-            print("Can't find the microphone")
+    func launchDevices(){
+        guard let _ = deviceCapture.launchCamera(for: .video, position: .front) else {
+            print("Launch camera device failed")
             return
         }
         
-        do {
-            microphoneDeviceInput = try AVCaptureDeviceInput.init(device: audioDevice)
-            
-            guard let input = microphoneDeviceInput,
-                cameraSession.canAddInput(input) else {
-                    print("Could not add microphone device input")
-                    return
-            }
-            cameraSession.addInput(input)
-        } catch {
-            print("Could not create microphone input: \(error)")
+        guard let sessoin = deviceCapture.launchMicrophone() else {
+            print("Launch microphone device failed")
             return
         }
+        deviceCapture.setSampleBufferDelegate(self, queue:frontCameraQueue)
         
-        guard cameraSession.canAddOutput(microphoneOutput) else {
-            print("Could not add the back microphone audio data output")
-            return
-        }
-        cameraSession.addOutput(microphoneOutput)
-        microphoneOutput.setSampleBufferDelegate(self, queue: frontCameraQueue)
-        cameraSession.commitConfiguration()
-        
-        //        microphoneSession.startRunning()
-    }
-    
-    func launchCamera() {
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
-            
-            print("Get camera failed")
-            return
-        }
-        
-        guard let videoDeviceInput = try? AVCaptureDeviceInput(device: device) else {
-            print("Create video input failed")
-            return
-        }
-        
-        cameraSession.beginConfiguration()
-        
-        
-        if cameraSession.canAddInput(videoDeviceInput) {
-            cameraSession.addInput(videoDeviceInput)
-        } else {
-            print("Couldn't add video device input to the session.")
-            cameraSession.commitConfiguration()
-            return
-        }
-        cameraSession.sessionPreset = .hd1280x720
-        device.supportsSessionPreset(.hd1280x720)
-        cameraSession.commitConfiguration()
-        preview.session = cameraSession
-        
+        preview.session = sessoin
         let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
         preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
         
-        
-        cameraOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA]
-        
-        let dataOutputQueue = frontCameraQueue
-        cameraOutput.setSampleBufferDelegate(self,
-                                             queue: dataOutputQueue)
-        
-        if cameraSession.canAddOutput(cameraOutput) {
-            cameraSession.addOutput(cameraOutput)
-        }else {
-            print("Couldn't add video output to the session.")
-            cameraSession.commitConfiguration()
-            return
-        }
-        
-        self.cameraSession.startRunning()
-        
+        sessoin.startRunning()
     }
     
     
@@ -258,7 +190,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         let videoAssetInput = AVAssetWriterInput.init(mediaType: .video, outputSettings: videoConfig)
         videoAssetInput.expectsMediaDataInRealTime = true
         // Add an audio input
-        let audioSettings = microphoneOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mp4) as! [String: NSObject]
+        let audioSettings = deviceCapture.microphoneOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mp4) as! [String: NSObject]
         audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings:audioSettings)
         audioInput!.expectsMediaDataInRealTime = true
         
@@ -324,11 +256,11 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if output == cameraOutput {
+        if output == deviceCapture.cameraOutput {
             receiveCamera(sampleBuffer: sampleBuffer)
         }
         
-        if output == microphoneOutput{
+        if output == deviceCapture.microphoneOutput{
             receiveAudioBuffer(sampleBuffer: sampleBuffer)
         }
     }

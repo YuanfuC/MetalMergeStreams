@@ -9,7 +9,7 @@
 import CoreMedia
 import MetalKit
 
-class FrameMixer: NSObject {
+@objc class FrameMixer: NSObject {
     
     var inFrame = CGRect.zero
     
