@@ -36,7 +36,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         super.viewDidLoad()
         
         setupUIComponents()
-        setupMixerFrameConfig()
+        setupMIxerPipLocation()
         launchDevices()
         startReadVideo()
         configVideoRecorder()
@@ -185,7 +185,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     
     //MARK: - Mix frame
     
-    func setupMixerFrameConfig(){
+    func setupMIxerPipLocation(){
         let normalizedTransform = CGAffineTransform(scaleX: 1.0 / rtpView.frame.width,
                                                     y: 1.0 / rtpView.frame.height)
         let frame = preview.frame.applying(normalizedTransform)
@@ -271,6 +271,15 @@ extension ViewController {
         recordingButton.addTarget(self, action: #selector(buttonClick), for: .touchUpInside)
         recordingButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         recordingButton.setTitleColor(UIColor.systemPink, for: .normal)
+        
+        let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
+        self.rtpView.addGestureRecognizer(gesture)
+    }
+    
+    @objc func gestureCallback(ges: UIGestureRecognizer){
+        let point = ges.location(in: self.rtpView)
+        preview.center = point
+        setupMIxerPipLocation()
     }
     
     @objc func  buttonClick() {
