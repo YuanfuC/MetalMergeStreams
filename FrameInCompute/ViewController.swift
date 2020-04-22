@@ -20,25 +20,17 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     let recordingLable = UILabel.init()
     let recordingButton = UIButton.init(type: .custom)
     
-    let deviceCapture = DeviceCapture()
-    
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
-    let rtpBufferQueue = DispatchQueue.init(label: "RTP-buffer")
-    let frontCameraQueue = DispatchQueue(label: "Front-camera-buffer",
-                                         qos: .userInitiated,
-                                         attributes: [],
-                                         autoreleaseFrequency: .workItem)
-    let videoSavingQueue = DispatchQueue.init(label: "Saving-video")
+    
+    let rtpBufferQueue = DispatchQueue.init(label: "rtp-data")
+    let deviceLaunchQueue = DispatchQueue.init(label: "device-launch")
+    let videoSavingQueue = DispatchQueue.init(label: "video-save")
     
     var rptCurrentFrame: CVPixelBuffer? = nil
     var mixer = FrameMixer()
-    
-    var videoWriter:AVAssetWriter? = nil
-    var videoInput:AVAssetWriterInput? = nil
-    var audioInput: AVAssetWriterInput?
-    var videoInputAdaptor:AVAssetWriterInputPixelBufferAdaptor? = nil
-    var isRecording:Bool = false
+    var recorder:FrameRecorder? = nil
+    let deviceCapture = DeviceCapture()
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -47,93 +39,18 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         setupMixerFrameConfig()
         launchDevices()
         startReadVideo()
-        configVideoCreator()
+        configVideoRecorder()
     }
+        
+    // MARK: - Init recorder
     
-    func configVideoCreator(){
-        (videoWriter, videoInput) = initVideoWriter()
-        guard let writer = videoWriter,
-            let input = videoInput else {
-                print("Video writer is not exist")
-                return
-        }
-        
-        var videoWriterInputPixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
-        let sourcePixelBufferAttributes = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: 1280,
-            kCVPixelBufferHeightKey as String: 720
-        ]
-        
-        videoWriterInputPixelBufferAdaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: input,
-            sourcePixelBufferAttributes: sourcePixelBufferAttributes
-        )
-        
-        guard let adaptor = videoWriterInputPixelBufferAdaptor else {
-            print("Adaptor create failed")
-            assert(false)
-            return
-        }
-        videoInputAdaptor = adaptor
+    func configVideoRecorder() {
+        let videoSettings = deviceCapture.cameraOutput.recommendedVideoSettingsForAssetWriter(writingTo: .mp4)  as! [String: NSObject]
+        let audioSettings = deviceCapture.microphoneOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mp4) as! [String: NSObject]
+        recorder = FrameRecorder.init(videoSettings: videoSettings, audioSettings: audioSettings)
     }
-    
-    func setupMixerFrameConfig(){
-        let normalizedTransform = CGAffineTransform(scaleX: 1.0 / rtpView.frame.width,
-                                                    y: 1.0 / rtpView.frame.height)
-        let frame = preview.frame.applying(normalizedTransform)
-        self.mixer.inFrame = frame
-    }
-    
-    func launchDevices(){
-        guard let _ = deviceCapture.launchCamera(for: .video, position: .front) else {
-            print("Launch camera device failed")
-            return
-        }
         
-        guard let sessoin = deviceCapture.launchMicrophone() else {
-            print("Launch microphone device failed")
-            return
-        }
-        deviceCapture.setSampleBufferDelegate(self, queue:frontCameraQueue)
-        
-        preview.session = sessoin
-        let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
-        preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
-        
-        sessoin.startRunning()
-    }
-    
-    
-    func startReadVideo() -> Void {
-        guard let path = Bundle.main.path(forResource: "rptVideo", ofType: "mp4") else {
-            print("Video file not exist")
-            return
-        }
-        
-        let tuple = initVideoReader(path: path)
-        
-        guard let reader = tuple.reader,
-            let output = tuple.videoOutput else {
-                print("Init video reader failed")
-                return;
-        }
-        
-        self.rtpOutput = output
-        self.rtpVideoReader = reader
-        
-        assert(reader.startReading())
-        
-        var isFinish = false
-        
-        
-        rtpBufferQueue.async {
-            while !isFinish {
-                self.copyFrameVideoVideo(&isFinish)
-                Thread.sleep(forTimeInterval:1.0/30.0)
-            }
-        }
-    }
+    // MARK: - Read rtp video
     
     func initVideoReader(path:String) ->(reader:AVAssetReader?,
         videoOutput:AVAssetReaderVideoCompositionOutput?) {
@@ -158,60 +75,33 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
             return (reader, output)
     }
     
-    func createDocPositionURL(_ fileName:String) -> URL? {
-        
-        guard let dirPath = NSSearchPathForDirectoriesInDomains(.cachesDirectory, .userDomainMask, true).last else {
-            return nil
-        }
-        let filePath = dirPath + "/" + fileName
-        return URL.init(fileURLWithPath: filePath)
-    }
-    
-    func initVideoWriter() -> (writer:AVAssetWriter?, videoInput:AVAssetWriterInput?) {
-        
-        guard let fileURL = createDocPositionURL("resultVideo.mp4") else {
-            assert(false)
-            return (nil, nil)
+    func startReadVideo() -> Void {
+        guard let path = Bundle.main.path(forResource: "rptVideo", ofType: "mp4") else {
+            print("Video file not exist")
+            return
         }
         
-        
-        do {
-            try FileManager.default.removeItem(at: fileURL)
-            print("Remove file success")
-        } catch {
-            print("Remove file \(error)")
+        let tuple = initVideoReader(path: path)
+        guard let reader = tuple.reader,
+            let output = tuple.videoOutput else {
+                print("Init video reader failed")
+                return;
         }
         
-        let assetWriter = try! AVAssetWriter.init(url: fileURL, fileType: .mp4)
-        
-        let videoConfig = [AVVideoCodecKey: AVVideoCodecType.h264,
-                           AVVideoWidthKey: NSNumber(1280),
-                           AVVideoHeightKey:NSNumber(720)] as [String : Any]
-        let videoAssetInput = AVAssetWriterInput.init(mediaType: .video, outputSettings: videoConfig)
-        videoAssetInput.expectsMediaDataInRealTime = true
-        // Add an audio input
-        let audioSettings = deviceCapture.microphoneOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mp4) as! [String: NSObject]
-        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings:audioSettings)
-        audioInput!.expectsMediaDataInRealTime = true
-        
-        if assetWriter.canAdd(audioInput!) {
-            assetWriter.add(audioInput!)
-        } else {
-            assert(false)
+        self.rtpOutput = output
+        self.rtpVideoReader = reader
+        assert(reader.startReading())
+        var isFinish = false
+        rtpBufferQueue.async {
+            while !isFinish {
+                self.copyFrameVideoVideo(&isFinish)
+                Thread.sleep(forTimeInterval:1.0/30.0)
+            }
         }
-        
-        if assetWriter.canAdd(videoAssetInput) {
-            assetWriter.add(videoAssetInput)
-        } else {
-            assert(false)
-        }
-        
-        return (assetWriter, videoAssetInput)
     }
     
     var rtpfpsDebugDate =  NSDate()
     var rptfpsDebugCount:NSInteger  = 0;
-    
     func copyFrameVideoVideo(_ isFinish:inout Bool) {
         
         guard let videoOutput = self.rtpOutput else {
@@ -242,7 +132,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
                     rptfpsDebugCount = 0;
                     rtpfpsDebugDate = NSDate();
                 }
-                frontCameraQueue.async {
+                deviceLaunchQueue.async {
                     self.rptCurrentFrame = pixelBuffer
                 }
                 rptfpsDebugCount += 1
@@ -254,38 +144,73 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         }
     }
     
+    //MARK: - Open camera and microphone
+    
+    func launchDevices(){
+        guard let _ = deviceCapture.launchCamera(for: .video, position: .front) else {
+            print("Launch camera device failed")
+            return
+        }
+        
+        guard let sessoin = deviceCapture.launchMicrophone() else {
+            print("Launch microphone device failed")
+            return
+        }
+        deviceCapture.setSampleBufferDelegate(self, queue:deviceLaunchQueue)
+        
+        preview.session = sessoin
+        let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
+        preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
+        
+        sessoin.startRunning()
+    }
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if output == deviceCapture.cameraOutput {
-            receiveCamera(sampleBuffer: sampleBuffer)
+            let pixelBuffer = mixFrame(sampleBuffer: sampleBuffer)
+            let  pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+            videoSavingQueue.async {
+                self.recorder?.recordVideo(pixelBuffer: pixelBuffer!, withPresentationTime: pts)
+            }
+            //            receiveCamera(sampleBuffer: sampleBuffer)
         }
         
         if output == deviceCapture.microphoneOutput{
-            receiveAudioBuffer(sampleBuffer: sampleBuffer)
+            videoSavingQueue.async {
+                self.recorder?.recordAudio(sampleBuffer: sampleBuffer)
+            }
+            //            receiveAudioBuffer(sampleBuffer: sampleBuffer)
         }
+    }
+    
+    //MARK: - Mix frame
+    
+    func setupMixerFrameConfig(){
+        let normalizedTransform = CGAffineTransform(scaleX: 1.0 / rtpView.frame.width,
+                                                    y: 1.0 / rtpView.frame.height)
+        let frame = preview.frame.applying(normalizedTransform)
+        self.mixer.inFrame = frame
     }
     
     var fpsDebugDate =  NSDate()
     var fpsDebugCount:NSInteger  = 0;
     
-    
-    func receiveCamera(sampleBuffer:CMSampleBuffer)  {
+    func mixFrame(sampleBuffer:CMSampleBuffer) -> CVPixelBuffer? {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             print("Frount Video pixel buffer not exist")
-            return
+            return nil
         }
-        
         
         guard let rptBuffer = self.rptCurrentFrame else {
             print("RTP pixel buffer not exist")
-            return
+            return pixelBuffer
         }
         
         if !mixer.isPrepared {
             
             guard let des = CMSampleBufferGetFormatDescription(sampleBuffer) else {
                 print("Get buffer des failed")
-                return
+                return pixelBuffer
             }
             mixer.prepare(with: des, outputRetainedBufferCountHint: 3)
         }
@@ -297,14 +222,6 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
             processLable.text = String.init(format: "process %.02f ms", -date.timeIntervalSinceNow * 1000)
         }
         
-        if let buffer = mixedBuffer,
-            isRecording {
-            videoSavingQueue.async {
-                self.savingVideo(pixelBuffer: buffer, sampleBuffer)
-            }
-        }
-        
-        
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
             DispatchQueue.main.sync {
                 frontCameraFpsLable.text = String.init(format: "Camera FPS: %d", fpsDebugCount)
@@ -313,108 +230,16 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
             fpsDebugDate = NSDate();
         }
         fpsDebugCount += 1
+        return mixedBuffer
     }
     
-    var audoiTimeSeconds = 0.0
-    
-    func receiveAudioBuffer(sampleBuffer:CMSampleBuffer)  {
-        if isRecording {
-            videoSavingQueue.async {
-                if self.audioInput!.isReadyForMoreMediaData {
-                    var timeInfo:CMSampleTimingInfo = CMSampleTimingInfo.init()
-                    CMSampleBufferGetSampleTimingInfo(sampleBuffer, at: 0, timingInfoOut: &timeInfo)
-                    
-                    let newTime = CMTime.init(seconds: self.audoiTimeSeconds, preferredTimescale: 44100)
-                    self.audoiTimeSeconds += 1.0/44100.0
-                    
-                    if #available(iOS 13.0, *) {
-                        try! sampleBuffer.setOutputPresentationTimeStamp(newTime)
-                    } else {
-                        // Fallback on earlier versions
-                    }
-                    self.audioInput!.append(sampleBuffer)
-                    
-                } else {
-                    print("")
-                }
-            }
-        }
-    }
-    
-    var videoTimeSeconds = 0.0
-    func savingVideo(pixelBuffer:CVPixelBuffer, _ sampleBuffer:CMSampleBuffer) {
-        guard let adaptor = videoInputAdaptor else {
-            print("Video adaptor not exsit")
-            return
-        }
-        
-        guard let writer = videoWriter else {
-            print("Video wirter not exsit")
-            return
-        }
-        
-        var formatDescription:CMVideoFormatDescription? = nil
-        CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &formatDescription)
-        
-        let  videoTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
-        
-        if videoWriter!.status == .unknown {
-            videoWriter!.startWriting()
-            videoWriter!.startSession(atSourceTime: videoTime)
-        } else if videoWriter!.status == .writing {
-            if !adaptor.assetWriterInput.isReadyForMoreMediaData {
-                print("NOT READY");
-                return;
-            }
-            
-            if (adaptor.append(pixelBuffer, withPresentationTime: videoTime) == false) {
-                print("error:\(String(describing: writer.error))")
-                assert(false)
-            } else {
-                print(String(format: "success append frame: %.03f", videoTime.seconds))
-            }
-        }
-        
-        
-    }
-    
-    private func saveMovieToPhotoLibrary(_ movieURL: URL) {
-        PHPhotoLibrary.requestAuthorization { status in
-            if status == .authorized {
-                // Save the movie file to the photo library and clean up.
-                PHPhotoLibrary.shared().performChanges({
-                    let options = PHAssetResourceCreationOptions()
-                    options.shouldMoveFile = true
-                    let creationRequest = PHAssetCreationRequest.forAsset()
-                    creationRequest.addResource(with: .video, fileURL: movieURL, options: options)
-                }, completionHandler: { success, error in
-                    if !success {
-                        print("\("Mixer") couldn't save the movie to your photo library: \(String(describing: error))")
-                    } else {
-                        // Clean up
-                        if FileManager.default.fileExists(atPath: movieURL.path) {
-                            do {
-                                try FileManager.default.removeItem(atPath: movieURL.path)
-                            } catch {
-                                print("Could not remove file at url: \(movieURL)")
-                            }
-                        }
-                        
-                    }
-                })
-            } else {
-                DispatchQueue.main.async {
-                    let alertMessage = "Alert message when the user has not authorized photo library access"
-                    let message = NSLocalizedString("Mixer does not have permission to access the photo library", comment: alertMessage)
-                    let alertController = UIAlertController(title: "Mixer", message: message, preferredStyle: .alert)
-                    self.present(alertController, animated: true, completion: nil)
-                }
-            }
-        }
-    }
+}
+
+extension ViewController {
     
     func setupUIComponents() {
-        let rtpViewWidth = UIScreen.main.bounds.width * 0.9
+        let mutiple:CGFloat = UIScreen.main.bounds.width >= 812 ? 0.8: 0.9
+        let rtpViewWidth = UIScreen.main.bounds.width * mutiple
         let rtpViewHeight = rtpViewWidth/(1280/720)
         rtpView.frame = CGRect.init(x: 0, y: 0, width: rtpViewWidth, height: rtpViewHeight)
         rtpView.center = self.view.center
@@ -440,36 +265,84 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         rtpView.addSubview(rtpFpsLabel)
         rtpView.addSubview(frontCameraFpsLable)
         
-        recordingButton.frame = CGRect.init(x: 40, y: UIScreen.main.bounds.size.height - 60, width: 80, height: 44)
+        recordingButton.frame = CGRect.init(x: 80, y: UIScreen.main.bounds.size.height - 60, width: 80, height: 44)
         self.view.addSubview(recordingButton)
         recordingButton.setTitle("Record", for: .normal)
         recordingButton.addTarget(self, action: #selector(buttonClick), for: .touchUpInside)
         recordingButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
-        recordingButton.setTitleColor(UIColor.orange, for: .normal)
+        recordingButton.setTitleColor(UIColor.systemPink, for: .normal)
     }
     
     @objc func  buttonClick() {
         
-        let title = self.isRecording ? "stop": "Recording"
+        let title = self.recorder!.isRecording ? "stop": "Recording"
         recordingButton.setTitle(title, for: .normal)
         
-        videoSavingQueue.async {
-            if (self.isRecording) {
-                self.videoWriter?.finishWriting {
-                    print("Write video success")
-                    DispatchQueue.main.sync {
-                        self.recordingButton.isEnabled = false;
-                    }
-                    
-                    guard let fileURL = self.createDocPositionURL("resultVideo.mp4") else {
-                        return 
-                    }
-                    self.saveMovieToPhotoLibrary(fileURL)
-                }
+        if !self.recorder!.isRecording  {
+            //开始
+            videoSavingQueue.async {
+                self.recorder?.startRecording()
             }
-            self.isRecording = !self.isRecording
+        } else {
+            //结束
+            videoSavingQueue.async {
+                self.recorder?.stopRecording(completion: { (url) in
+                    self.saveMovieToPhotoLibrary(url)
+                    DispatchQueue.main.async {
+                        self.recordingButton.setTitle("Record", for: .normal)
+                    }
+                })
+            }
         }
+        return
     }
     
 }
 
+extension ViewController {
+    private func saveMovieToPhotoLibrary(_ movieURL: URL) {
+        PHPhotoLibrary.requestAuthorization { status in
+            if status == .authorized {
+                // Save the movie file to the photo library and clean up.
+                PHPhotoLibrary.shared().performChanges({
+                    let options = PHAssetResourceCreationOptions()
+                    options.shouldMoveFile = true
+                    let creationRequest = PHAssetCreationRequest.forAsset()
+                    creationRequest.addResource(with: .video, fileURL: movieURL, options: options)
+                }, completionHandler: { success, error in
+                    if !success {
+                        print("\("Mixer") couldn't save the movie to your photo library: \(String(describing: error))")
+                    } else {
+                        
+                        DispatchQueue.main.async {
+                            let alertMessage = "Saving video success"
+                            let message = NSLocalizedString("success saving the process video", comment: alertMessage)
+                            let alertAction = UIAlertAction.init(title: "OK", style: .default, handler: nil)
+                            let alertController = UIAlertController(title: "Mixer", message: message, preferredStyle: .alert)
+                            alertController.addAction(alertAction)
+                            self.present(alertController, animated: true, completion: nil)
+                        }
+                        
+                        // Clean up
+                        if FileManager.default.fileExists(atPath: movieURL.path) {
+                            do {
+                                try FileManager.default.removeItem(atPath: movieURL.path)
+                            } catch {
+                                print("Could not remove file at url: \(movieURL)")
+                            }
+                        }
+                        
+                    }
+                })
+            } else {
+                DispatchQueue.main.async {
+                    let alertMessage = "Alert message when the user has not authorized photo library access"
+                    let message = NSLocalizedString("Mixer does not have permission to access the photo library", comment: alertMessage)
+                    let alertController = UIAlertController(title: "Mixer", message: message, preferredStyle: .alert)
+                    self.present(alertController, animated: true, completion: nil)
+                }
+            }
+        }
+    }
+
+}
