@@ -8,8 +8,9 @@
 
 import UIKit
 import AVFoundation
+import Photos
 
-class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate {
+class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate {
     
     let preview = PreviewView.init()
     let rtpView = DisplayView.init()
@@ -18,7 +19,13 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     let frontCameraFpsLable = UILabel.init()
     let recordingLable = UILabel.init()
     let recordingButton = UIButton.init(type: .custom)
-    let session = AVCaptureSession()
+    
+    let cameraSession = AVCaptureSession()
+    let cameraOutput = AVCaptureVideoDataOutput()
+    let microphoneOutput = AVCaptureAudioDataOutput()
+    var microphoneDeviceInput: AVCaptureDeviceInput?
+    
+    
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
     let rtpBufferQueue = DispatchQueue.init(label: "RTP-buffer")
@@ -33,6 +40,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     
     var videoWriter:AVAssetWriter? = nil
     var videoInput:AVAssetWriterInput? = nil
+    var audioInput: AVAssetWriterInput?
     var videoInputAdaptor:AVAssetWriterInputPixelBufferAdaptor? = nil
     var isRecording:Bool = false
     
@@ -41,6 +49,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         setupUIComponents()
         setupMixerFrameConfig()
+        launchMicrophone()
         launchCamera()
         startReadVideo()
         configVideoCreator()
@@ -71,8 +80,6 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             assert(false)
             return
         }
-        assert(writer.startWriting())
-        writer.startSession(atSourceTime: CMTime.init(value: 0, timescale: 1))
         videoInputAdaptor = adaptor
     }
     
@@ -81,6 +88,39 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                                                     y: 1.0 / rtpView.frame.height)
         let frame = preview.frame.applying(normalizedTransform)
         self.mixer.inFrame = frame
+    }
+    
+    func launchMicrophone() {
+        cameraSession.beginConfiguration()
+        
+        guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
+            print("Can't find the microphone")
+            return
+        }
+        
+        do {
+            microphoneDeviceInput = try AVCaptureDeviceInput.init(device: audioDevice)
+            
+            guard let input = microphoneDeviceInput,
+                cameraSession.canAddInput(input) else {
+                    print("Could not add microphone device input")
+                    return
+            }
+            cameraSession.addInput(input)
+        } catch {
+            print("Could not create microphone input: \(error)")
+            return
+        }
+        
+        guard cameraSession.canAddOutput(microphoneOutput) else {
+            print("Could not add the back microphone audio data output")
+            return
+        }
+        cameraSession.addOutput(microphoneOutput)
+        microphoneOutput.setSampleBufferDelegate(self, queue: frontCameraQueue)
+        cameraSession.commitConfiguration()
+        
+        //        microphoneSession.startRunning()
     }
     
     func launchCamera() {
@@ -95,54 +135,47 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             return
         }
         
-        session.beginConfiguration()
+        cameraSession.beginConfiguration()
         
         
-        if session.canAddInput(videoDeviceInput) {
-            session.addInput(videoDeviceInput)
+        if cameraSession.canAddInput(videoDeviceInput) {
+            cameraSession.addInput(videoDeviceInput)
         } else {
             print("Couldn't add video device input to the session.")
-            session.commitConfiguration()
+            cameraSession.commitConfiguration()
             return
         }
-        session.sessionPreset = .hd1280x720
+        cameraSession.sessionPreset = .hd1280x720
         device.supportsSessionPreset(.hd1280x720)
-        
-        session.commitConfiguration()
-        
-        
-        
-        preview.session = session
+        cameraSession.commitConfiguration()
+        preview.session = cameraSession
         
         let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
         preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
         
         
-        let videoOutput = AVCaptureVideoDataOutput()
-        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA]
+        cameraOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA]
         
         let dataOutputQueue = frontCameraQueue
+        cameraOutput.setSampleBufferDelegate(self,
+                                             queue: dataOutputQueue)
         
-        
-        videoOutput.setSampleBufferDelegate(self,
-                                            queue: dataOutputQueue)
-        
-        if session.canAddOutput(videoOutput) {
-            session.addOutput(videoOutput)
+        if cameraSession.canAddOutput(cameraOutput) {
+            cameraSession.addOutput(cameraOutput)
         }else {
             print("Couldn't add video output to the session.")
-            session.commitConfiguration()
+            cameraSession.commitConfiguration()
             return
         }
         
-        self.session.startRunning()
+        self.cameraSession.startRunning()
         
     }
     
     
     func startReadVideo() -> Void {
         guard let path = Bundle.main.path(forResource: "rptVideo", ofType: "mp4") else {
-            print("file not exist")
+            print("Video file not exist")
             return
         }
         
@@ -150,7 +183,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         guard let reader = tuple.reader,
             let output = tuple.videoOutput else {
-                print("init video reader failed")
+                print("Init video reader failed")
                 return;
         }
         
@@ -182,7 +215,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
             }
             
             guard let track  = asset.tracks(withMediaType: .video).last else {
-                print("track init failed")
+                print("Track init failed")
                 return (nil, nil)
             }
             
@@ -212,9 +245,9 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         
         do {
             try FileManager.default.removeItem(at: fileURL)
-            print("remove file success")
+            print("Remove file success")
         } catch {
-            print("remove file \(error)")
+            print("Remove file \(error)")
         }
         
         let assetWriter = try! AVAssetWriter.init(url: fileURL, fileType: .mp4)
@@ -222,9 +255,18 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         let videoConfig = [AVVideoCodecKey: AVVideoCodecType.h264,
                            AVVideoWidthKey: NSNumber(1280),
                            AVVideoHeightKey:NSNumber(720)] as [String : Any]
-        
         let videoAssetInput = AVAssetWriterInput.init(mediaType: .video, outputSettings: videoConfig)
+        videoAssetInput.expectsMediaDataInRealTime = true
+        // Add an audio input
+        let audioSettings = microphoneOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mp4) as! [String: NSObject]
+        audioInput = AVAssetWriterInput(mediaType: .audio, outputSettings:audioSettings)
+        audioInput!.expectsMediaDataInRealTime = true
         
+        if assetWriter.canAdd(audioInput!) {
+            assetWriter.add(audioInput!)
+        } else {
+            assert(false)
+        }
         
         if assetWriter.canAdd(videoAssetInput) {
             assetWriter.add(videoAssetInput)
@@ -281,11 +323,21 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
     }
     
     
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        if output == cameraOutput {
+            receiveCamera(sampleBuffer: sampleBuffer)
+        }
+        
+        if output == microphoneOutput{
+            receiveAudioBuffer(sampleBuffer: sampleBuffer)
+        }
+    }
     
     var fpsDebugDate =  NSDate()
     var fpsDebugCount:NSInteger  = 0;
     
-    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    
+    func receiveCamera(sampleBuffer:CMSampleBuffer)  {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
             print("Frount Video pixel buffer not exist")
             return
@@ -316,7 +368,7 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         if let buffer = mixedBuffer,
             isRecording {
             videoSavingQueue.async {
-                self.savingVideo(pixelBuffer: buffer)
+                self.savingVideo(pixelBuffer: buffer, sampleBuffer)
             }
         }
         
@@ -331,9 +383,34 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         fpsDebugCount += 1
     }
     
-    var videoTimeSeconds = 0.0
+    var audoiTimeSeconds = 0.0
     
-    func savingVideo(pixelBuffer:CVPixelBuffer) {
+    func receiveAudioBuffer(sampleBuffer:CMSampleBuffer)  {
+        if isRecording {
+            videoSavingQueue.async {
+                if self.audioInput!.isReadyForMoreMediaData {
+                    var timeInfo:CMSampleTimingInfo = CMSampleTimingInfo.init()
+                    CMSampleBufferGetSampleTimingInfo(sampleBuffer, at: 0, timingInfoOut: &timeInfo)
+                    
+                    let newTime = CMTime.init(seconds: self.audoiTimeSeconds, preferredTimescale: 44100)
+                    self.audoiTimeSeconds += 1.0/44100.0
+                    
+                    if #available(iOS 13.0, *) {
+                        try! sampleBuffer.setOutputPresentationTimeStamp(newTime)
+                    } else {
+                        // Fallback on earlier versions
+                    }
+                    self.audioInput!.append(sampleBuffer)
+                    
+                } else {
+                    print("")
+                }
+            }
+        }
+    }
+    
+    var videoTimeSeconds = 0.0
+    func savingVideo(pixelBuffer:CVPixelBuffer, _ sampleBuffer:CMSampleBuffer) {
         guard let adaptor = videoInputAdaptor else {
             print("Video adaptor not exsit")
             return
@@ -347,15 +424,60 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
         var formatDescription:CMVideoFormatDescription? = nil
         CMVideoFormatDescriptionCreateForImageBuffer(allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &formatDescription)
         
-        let cmTime = CMTime.init(seconds: videoTimeSeconds, preferredTimescale: 600)
-        videoTimeSeconds += 1.0/30.0
+        let  videoTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+        
+        if videoWriter!.status == .unknown {
+            videoWriter!.startWriting()
+            videoWriter!.startSession(atSourceTime: videoTime)
+        } else if videoWriter!.status == .writing {
+            if !adaptor.assetWriterInput.isReadyForMoreMediaData {
+                print("NOT READY");
+                return;
+            }
+            
+            if (adaptor.append(pixelBuffer, withPresentationTime: videoTime) == false) {
+                print("error:\(String(describing: writer.error))")
+                assert(false)
+            } else {
+                print(String(format: "success append frame: %.03f", videoTime.seconds))
+            }
+        }
         
         
-        if (adaptor.append(pixelBuffer, withPresentationTime: cmTime) == false) {
-            print("error:\(String(describing: writer.error))")
-            assert(false)
-        } else {
-            print(String(format: "success append frame: %03f\n", cmTime.seconds))
+    }
+    
+    private func saveMovieToPhotoLibrary(_ movieURL: URL) {
+        PHPhotoLibrary.requestAuthorization { status in
+            if status == .authorized {
+                // Save the movie file to the photo library and clean up.
+                PHPhotoLibrary.shared().performChanges({
+                    let options = PHAssetResourceCreationOptions()
+                    options.shouldMoveFile = true
+                    let creationRequest = PHAssetCreationRequest.forAsset()
+                    creationRequest.addResource(with: .video, fileURL: movieURL, options: options)
+                }, completionHandler: { success, error in
+                    if !success {
+                        print("\("Mixer") couldn't save the movie to your photo library: \(String(describing: error))")
+                    } else {
+                        // Clean up
+                        if FileManager.default.fileExists(atPath: movieURL.path) {
+                            do {
+                                try FileManager.default.removeItem(atPath: movieURL.path)
+                            } catch {
+                                print("Could not remove file at url: \(movieURL)")
+                            }
+                        }
+                        
+                    }
+                })
+            } else {
+                DispatchQueue.main.async {
+                    let alertMessage = "Alert message when the user has not authorized photo library access"
+                    let message = NSLocalizedString("Mixer does not have permission to access the photo library", comment: alertMessage)
+                    let alertController = UIAlertController(title: "Mixer", message: message, preferredStyle: .alert)
+                    self.present(alertController, animated: true, completion: nil)
+                }
+            }
         }
     }
     
@@ -406,6 +528,11 @@ class ViewController: UIViewController, AVCaptureVideoDataOutputSampleBufferDele
                     DispatchQueue.main.sync {
                         self.recordingButton.isEnabled = false;
                     }
+                    
+                    guard let fileURL = self.createDocPositionURL("resultVideo.mp4") else {
+                        return 
+                    }
+                    self.saveMovieToPhotoLibrary(fileURL)
                 }
             }
             self.isRecording = !self.isRecording
