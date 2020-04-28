@@ -13,9 +13,10 @@ struct MixParameters
 {
     float2 position;
     float2 size;
+    int isMirror;
 };
 
-constant sampler bilinearSampler(filter::linear,  coord::pixel, address::clamp_to_edge);
+constexpr constant sampler bilinearSampler(filter::linear,  coord::pixel, address::clamp_to_edge);
 
 kernel void frameMixer(texture2d <half, access::read> rptTexture[[texture(0)]],
                        texture2d <half, access::sample> frontCameraTexture[[texture(1)]],
@@ -32,7 +33,15 @@ kernel void frameMixer(texture2d <half, access::read> rptTexture[[texture(0)]],
         (gid.x <= position.x + size.x) &&
         (gid.y <= position.y + size.y)) {
         
-        float2 frontCameraSampleCoordinate = float2(size.x - ( gid.x - position.x), gid.y - position.y) *
+        float x = 0;
+        
+        if (parameters.isMirror == 1) {
+            x = size.x - ( gid.x - position.x);
+        } else {
+            x = gid.x - position.x;
+        }
+        
+        float2 frontCameraSampleCoordinate = float2(x, gid.y - position.y) *
         float2(frontCameraTexture.get_width(), frontCameraTexture.get_height()) / float2(size);
         output =  frontCameraTexture.sample(bilinearSampler, frontCameraSampleCoordinate);
     } else {
@@ -41,3 +50,5 @@ kernel void frameMixer(texture2d <half, access::read> rptTexture[[texture(0)]],
     
     outputTexture.write(output, gid);
 }
+
+

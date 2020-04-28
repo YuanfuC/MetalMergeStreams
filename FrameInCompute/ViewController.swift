@@ -19,7 +19,8 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     let frontCameraFpsLable = UILabel.init()
     let recordingLable = UILabel.init()
     let recordingButton = UIButton.init(type: .custom)
-    
+    let mirrorButton = UIButton.init(type: .custom)
+
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
     
@@ -36,7 +37,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         super.viewDidLoad()
         
         setupUIComponents()
-        setupMIxerPipLocation()
+        self.mixer.inFrame =  self.mixer.calculateWindowPosition(backgroundViewFrame: self.rtpView.frame, windowViewFrame: self.preview.frame)
         launchDevices()
         startReadVideo()
         configVideoRecorder()
@@ -185,12 +186,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     
     //MARK: - Mix frame
     
-    func setupMIxerPipLocation(){
-        let normalizedTransform = CGAffineTransform(scaleX: 1.0 / rtpView.frame.width,
-                                                    y: 1.0 / rtpView.frame.height)
-        let frame = preview.frame.applying(normalizedTransform)
-        self.mixer.inFrame = frame
-    }
+
     
     var fpsDebugDate =  NSDate()
     var fpsDebugCount:NSInteger  = 0;
@@ -216,7 +212,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         }
         
         let date = NSDate()
-        let mixedBuffer = mixer.mixFrame(rptBuffer, pixelBuffer)
+        let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
         
         DispatchQueue.main.sync {
             processLable.text = String.init(format: "mix: %.02f ms", -date.timeIntervalSinceNow * 1000)
@@ -272,6 +268,13 @@ extension ViewController {
         recordingButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         recordingButton.setTitleColor(UIColor.systemPink, for: .normal)
         
+        mirrorButton.frame = CGRect.init(x: 80, y: UIScreen.main.bounds.size.height - 100, width: 80, height: 44)
+        self.view.addSubview(mirrorButton)
+        mirrorButton.setTitle("mirror", for: .normal)
+        mirrorButton.addTarget(self, action: #selector(mirrorFrame), for: .touchUpInside)
+        mirrorButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        mirrorButton.setTitleColor(UIColor.systemPink, for: .normal)
+        
         let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
         self.preview.addGestureRecognizer(gesture)
     }
@@ -279,10 +282,15 @@ extension ViewController {
     @objc func gestureCallback(ges: UIGestureRecognizer){
         let point = ges.location(in: self.rtpView)
         preview.center = point
-        setupMIxerPipLocation()
+        self.mixer.inFrame =  self.mixer.calculateWindowPosition(backgroundViewFrame: self.rtpView.frame, windowViewFrame: self.preview.frame)    }
+    
+    @objc func  mirrorFrame() {
+        mixer.isMirror = !mixer.isMirror
+        mirrorButton.backgroundColor = mixer.isMirror ? UIColor.green: UIColor.yellow
     }
     
     @objc func  buttonClick() {
+        
         
         let title = self.recorder!.isRecording ? "stop": "Recording"
         recordingButton.setTitle(title, for: .normal)

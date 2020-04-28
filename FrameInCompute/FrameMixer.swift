@@ -9,10 +9,12 @@
 import CoreMedia
 import MetalKit
 
-@objc class FrameMixer: NSObject {
+@objc public class FrameMixer: NSObject {
     
-    var inFrame = CGRect.zero
-    
+    @objc public var inFrame = CGRect.zero
+    @objc public var isPrepared:Bool = false
+    @objc public var isMirror:Bool = false
+
     private let metalDevice:MTLDevice? = MTLCreateSystemDefaultDevice()
     private let computePipelineState:MTLComputePipelineState?
     private var textureCache: CVMetalTextureCache?
@@ -27,9 +29,8 @@ import MetalKit
     private(set) var inputFormatDescription: CMFormatDescription?
     private(set) var outputFormatDescription: CMFormatDescription?
     private var outputPixelBufferPool: CVPixelBufferPool?
-    var isPrepared:Bool = false
     
-    override init() {
+    @objc public override init() {
         guard let device = metalDevice,
             let library = device.makeDefaultLibrary(),
             let kernalFunction = library.makeFunction(name: "frameMixer") else {
@@ -50,7 +51,7 @@ import MetalKit
         super.init()
     }
     
-    func prepare(with videoFormatDescription:CMFormatDescription, outputRetainedBufferCountHint: Int) {
+    @objc public func prepare(with videoFormatDescription:CMFormatDescription, outputRetainedBufferCountHint: Int) {
         (outputPixelBufferPool, _, outputFormatDescription) = allocOutputBufferPool(with: videoFormatDescription,
                                                                                     outputRetainedBufferCountHint: outputRetainedBufferCountHint)
         if outputPixelBufferPool == nil {
@@ -64,7 +65,7 @@ import MetalKit
         
         var metalTextureCache: CVMetalTextureCache?
         if CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, metalDevice, nil, &metalTextureCache) != kCVReturnSuccess {
-            assertionFailure("Unable to allocate video mixer texture cache")
+            assertionFailure("FrameMixer unable to allocate video mixer texture cache")
         } else {
             textureCache = metalTextureCache
         }
@@ -75,39 +76,41 @@ import MetalKit
     struct MixerParameters {
         var position: SIMD2<Float>
         var size: SIMD2<Float>
+        var isMirror: Int
     }
     
-    func mixFrame(_ buffer1:CVPixelBuffer, _ buffer2:CVPixelBuffer) ->CVPixelBuffer? {
+    @objc public func mixFrame(background:CVPixelBuffer, window:CVPixelBuffer) ->CVPixelBuffer? {
         
         guard isPrepared,
             let outputPixelBufferPool = outputPixelBufferPool else {
-                assertionFailure("Invalid state: Not prepared")
+                assertionFailure("FrameMixer invalid state: Not prepared")
                 return nil
         }
         
         var newPixelBuffer:CVPixelBuffer?
         CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, outputPixelBufferPool, &newPixelBuffer)
         guard let outputPixelBuffer = newPixelBuffer else {
-            print("Mix failed: Could not get pixel buffer from pool (\(self))")
+            print("FrameMixer failed: Could not get pixel buffer from pool (\(self))")
             return nil
         }
         
         guard let outputTexture = makeTextureFromCVPixelBuffer(outputPixelBuffer),
-            let buffer1Texture = makeTextureFromCVPixelBuffer(buffer1),
-            let buffer2Texture = makeTextureFromCVPixelBuffer(buffer2) else {
+            let buffer1Texture = makeTextureFromCVPixelBuffer(background),
+            let buffer2Texture = makeTextureFromCVPixelBuffer(window) else {
                 return nil
         }
         
         let inFramePosition = SIMD2(Float(inFrame.origin.x) * Float(buffer1Texture.width), Float(inFrame.origin.y) * Float(buffer1Texture.height))
         let inFrameSize = SIMD2(Float(inFrame.size.width) * Float(buffer2Texture.width), Float(inFrame.size.height) * Float(buffer2Texture.height))
-        var parameters = MixerParameters(position: inFramePosition, size: inFrameSize)
+        
+        var parameters = MixerParameters(position: inFramePosition, size: inFrameSize, isMirror: isMirror ? 1 : 0)
         
         
         guard let commandQueue = self.commandQueue,
             let commandBuffer = commandQueue.makeCommandBuffer(),
             let commandEncoder = commandBuffer.makeComputeCommandEncoder(),
             let computePipelineState = self.computePipelineState else {
-                print("Mix failed to create Metal command encoder")
+                print("FrameMixer failed to create Metal command encoder")
                 if let textureCache = textureCache {
                     CVMetalTextureCacheFlush(textureCache, 0)
                 }
@@ -120,7 +123,7 @@ import MetalKit
         commandEncoder.setTexture(buffer2Texture, index: 1)
         commandEncoder.setTexture(outputTexture, index: 2)
         commandEncoder.setBytes(UnsafeMutableRawPointer(&parameters), length: MemoryLayout<MixerParameters>.size, index: 0)
-
+        
         let width = computePipelineState.threadExecutionWidth
         let height = computePipelineState.maxTotalThreadsPerThreadgroup / width
         let threadsPerThreadgroup = MTLSizeMake(width, height, 1)
@@ -137,7 +140,7 @@ import MetalKit
     private func makeTextureFromCVPixelBuffer(_ pixelBuffer:CVPixelBuffer) -> MTLTexture? {
         
         guard let textureCache = textureCache else {
-            print("Make buffer failed, texture cache is not exist")
+            print("FrameMixer make buffer failed, texture cache is not exist")
             return nil
         }
         
@@ -150,7 +153,7 @@ import MetalKit
         assert(result == kCVReturnSuccess)
         
         guard let cvTexture = cvTextureOut, let texture = CVMetalTextureGetTexture(cvTexture) else {
-            print("Make buffer failed to create preview texture")
+            print("FrameMixer make buffer failed to create preview texture")
             
             CVMetalTextureCacheFlush(textureCache, 0)
             return nil
@@ -159,4 +162,15 @@ import MetalKit
         return texture
         
     }
+}
+
+extension FrameMixer {
+    
+    @objc public func calculateWindowPosition(backgroundViewFrame:CGRect, windowViewFrame:CGRect) -> CGRect{
+        let normalizedTransform = CGAffineTransform(scaleX: 1.0 / backgroundViewFrame.width,
+                                                    y: 1.0 / backgroundViewFrame.height)
+        let frame = windowViewFrame.applying(normalizedTransform)
+        return frame
+    }
+    
 }
