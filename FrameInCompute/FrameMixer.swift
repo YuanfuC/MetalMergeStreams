@@ -51,6 +51,13 @@ import MetalKit
         super.init()
     }
     
+    @objc public func resetPixelBufferPool(){
+        isPrepared = false;
+        if let pool = outputPixelBufferPool {
+            CVPixelBufferPoolFlush(pool, .excessBuffers)
+        }
+    }
+    
     @objc public func prepare(with videoFormatDescription:CMFormatDescription, outputRetainedBufferCountHint: Int) {
         (outputPixelBufferPool, _, outputFormatDescription) = allocOutputBufferPool(with: videoFormatDescription,
                                                                                     outputRetainedBufferCountHint: outputRetainedBufferCountHint)
