@@ -9,49 +9,29 @@
 #import "ZZLiveController.h"
 
 @interface ZZLiveController()<LFLiveSessionDelegate>
+
 @property(nonatomic, strong) LFLiveSession *session;
 @property(nonatomic, strong)  dispatch_queue_t pushQueue;
+
 @end
 
 @implementation ZZLiveController
 
-- (LFLiveSession *)session {
-    if (!_session) {
-        LFLiveAudioConfiguration *audioConfiguration = [LFLiveAudioConfiguration new];
-        audioConfiguration.numberOfChannels = 2;
-        audioConfiguration.audioBitrate = LFLiveAudioBitRate_128Kbps;
-        audioConfiguration.audioSampleRate = LFLiveAudioSampleRate_44100Hz;
-        
-        LFLiveVideoConfiguration *videoConfiguration = [LFLiveVideoConfiguration new];
-        videoConfiguration.videoSize = CGSizeMake(1280, 720);
-        videoConfiguration.videoBitRate = 800 * 1024;
-        videoConfiguration.videoMaxBitRate = 1000 * 1024;
-        videoConfiguration.videoMinBitRate = 500 * 1024;
-        videoConfiguration.videoFrameRate = 30;
-        videoConfiguration.videoMaxKeyframeInterval = 30;
-        videoConfiguration.sessionPreset = LFCaptureSessionPreset720x1280;
-        
-        _session = [[LFLiveSession alloc] initWithAudioConfiguration:audioConfiguration videoConfiguration:videoConfiguration];
-        _session.delegate = self;
+- (instancetype)initWithSession:(LFLiveSession *)session {
+    if (self = [super init]) {
+        _session = session;
     }
-    return _session;
+    return self;
 }
 
-- (dispatch_queue_t)pushQueue {
-    if (!_pushQueue) {
-        _pushQueue = dispatch_queue_create("Push-queue", DISPATCH_QUEUE_SERIAL);
-    }
-    return _pushQueue;
-}
-
-- (void)startLiveWithURL:(NSString *)urlString {
+- (void)startLiveWithURL:(NSString *)URLString {
     
     if (_isLiving == YES) {
         return;
     }
     
     LFLiveStreamInfo *stream = [LFLiveStreamInfo new];
-    stream.url = urlString;
+    stream.url = URLString;
     [self.session startLive:stream];
     _isLiving = YES;
 }
@@ -128,7 +108,36 @@
     }
 }
 
-#pragma mark - Authorizations
+#pragma mark - Getter
+
+- (LFLiveSession *)session {
+    if (!_session) {
+        LFLiveAudioConfiguration *audioConfiguration = [LFLiveAudioConfiguration new];
+        audioConfiguration.numberOfChannels = 2;
+        audioConfiguration.audioBitrate = LFLiveAudioBitRate_128Kbps;
+        audioConfiguration.audioSampleRate = LFLiveAudioSampleRate_44100Hz;
+        
+        LFLiveVideoConfiguration *videoConfiguration = [LFLiveVideoConfiguration new];
+        videoConfiguration.videoSize = CGSizeMake(1280, 720);
+        videoConfiguration.videoBitRate = 800 * 1024;
+        videoConfiguration.videoMaxBitRate = 1000 * 1024;
+        videoConfiguration.videoMinBitRate = 500 * 1024;
+        videoConfiguration.videoFrameRate = 30;
+        videoConfiguration.videoMaxKeyframeInterval = 30;
+        videoConfiguration.sessionPreset = LFCaptureSessionPreset720x1280;
+        
+        _session = [[LFLiveSession alloc] initWithAudioConfiguration:audioConfiguration videoConfiguration:videoConfiguration];
+        _session.delegate = self;
+    }
+    return _session;
+}
+
+- (dispatch_queue_t)pushQueue {
+    if (!_pushQueue) {
+        _pushQueue = dispatch_queue_create("Push-queue", DISPATCH_QUEUE_SERIAL);
+    }
+    return _pushQueue;
+}
 
 
 @end

@@ -18,7 +18,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property(nonatomic, weak) id <LFLiveSessionDelegate> sessionDelegate;
 
-- (void)startLiveWithURL:(NSString *)urlString;
+- (instancetype)initWithSession:(LFLiveSession *)session;
+
+- (void)startLiveWithURL:(NSString *)URLString;
 
 - (void)stopLive;
 
