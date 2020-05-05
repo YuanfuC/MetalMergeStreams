@@ -1,0 +1,21 @@
+PODS:
+  - LFLiveKit (2.6)
+
+DEPENDENCIES:
+  - "LFLiveKit (from `git@github.com:YuanfuC/LFLiveKit.git`)"
+
+EXTERNAL SOURCES:
+  LFLiveKit:
+    :git: "git@github.com:YuanfuC/LFLiveKit.git"
+
+CHECKOUT OPTIONS:
+  LFLiveKit:
+    :commit: 1fdbfacb7b6fa31d4829a13740c1a174ccf23b50
+    :git: "git@github.com:YuanfuC/LFLiveKit.git"
+
+SPEC CHECKSUMS:
+  LFLiveKit: 2219563721f8aa0f188effc3395a06e2d53b23f2
+
+PODFILE CHECKSUM: 402375ae416de46c0d28b7b37bb53e66f8c39fec
+
+COCOAPODS: 1.8.4

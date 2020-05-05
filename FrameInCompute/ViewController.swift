@@ -20,7 +20,10 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     let recordingLable = UILabel.init()
     let recordingButton = UIButton.init(type: .custom)
     let mirrorButton = UIButton.init(type: .custom)
-
+    let liveButton = UIButton.init(type: .custom)
+    
+    let liveController = ZZLiveController.init()
+    
     var rtpVideoReader: AVAssetReader?
     var rtpOutput: AVAssetReaderVideoCompositionOutput?
     
@@ -42,7 +45,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         startReadVideo()
         configVideoRecorder()
     }
-        
+    
     // MARK: - Init recorder
     
     func configVideoRecorder() {
@@ -50,7 +53,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         let audioSettings = deviceCapture.microphoneOutput.recommendedAudioSettingsForAssetWriter(writingTo: .mp4) as! [String: NSObject]
         recorder = FrameRecorder.init(videoSettings: videoSettings, audioSettings: audioSettings)
     }
-        
+    
     // MARK: - Read rtp video
     
     func initVideoReader(path:String) ->(reader:AVAssetReader?,
@@ -186,7 +189,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     
     //MARK: - Mix frame
     
-
+    
     
     var fpsDebugDate =  NSDate()
     var fpsDebugCount:NSInteger  = 0;
@@ -213,6 +216,8 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         
         let date = NSDate()
         let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
+        
+        self.liveController.pushFrame(mixedBuffer!);
         
         DispatchQueue.main.sync {
             processLable.text = String.init(format: "mix: %.02f ms", -date.timeIntervalSinceNow * 1000)
@@ -268,13 +273,21 @@ extension ViewController {
         recordingButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         recordingButton.setTitleColor(UIColor.systemPink, for: .normal)
         
-        mirrorButton.frame = CGRect.init(x: 80, y: UIScreen.main.bounds.size.height - 100, width: 80, height: 44)
+        mirrorButton.frame = CGRect.init(x: 80, y:recordingButton.frame.origin.y - 40, width: 80, height: 44)
         self.view.addSubview(mirrorButton)
         mirrorButton.setTitle("mirror", for: .normal)
         mirrorButton.addTarget(self, action: #selector(mirrorFrame), for: .touchUpInside)
         mirrorButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         mirrorButton.setTitleColor(UIColor.systemPink, for: .normal)
         
+        liveButton.frame = CGRect.init(x: 80, y: mirrorButton.frame.origin.y - 40, width: 80, height: 44)
+        self.view.addSubview(liveButton)
+        liveButton.setTitle("启动直播", for: .normal)
+        liveButton.addTarget(self, action: #selector(liveAction), for: .touchUpInside)
+        liveButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        liveButton.setTitleColor(UIColor.white, for: .normal)
+        liveButton.backgroundColor = UIColor.green
+
         let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
         self.preview.addGestureRecognizer(gesture)
     }
@@ -287,6 +300,19 @@ extension ViewController {
     @objc func  mirrorFrame() {
         mixer.isMirror = !mixer.isMirror
         mirrorButton.backgroundColor = mixer.isMirror ? UIColor.green: UIColor.yellow
+    }
+    
+    @objc func liveAction(sender:UIButton) {
+        if self.liveController.isLiving == false {
+                    self.liveController.configDeviceRunning(false, microRunning: true)
+            self.liveController.startLive(withURL: "rtmp://bvc.live-send.acg.tv/live-bvc/?streamname=live_28800896_3667210&key=f4107af62fb0089a447ab46ec12eae04")
+            sender.setTitle("停止直播", for: .normal)
+            sender.backgroundColor = UIColor.red
+        } else {
+            self.liveController.stopLive()
+            sender.setTitle("开始直播", for: .normal)
+            sender.backgroundColor = UIColor.green
+        }
     }
     
     @objc func  buttonClick() {
@@ -361,5 +387,5 @@ extension ViewController {
             }
         }
     }
-
+    
 }
