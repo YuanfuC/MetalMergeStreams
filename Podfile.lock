@@ -1,21 +1,27 @@
 PODS:
-  - LFLiveKit (2.6)
+  - GPUImage (0.1.17)
+  - LFLiveKit (2.6):
+    - GPUImage
 
 DEPENDENCIES:
-  - "LFLiveKit (from `git@github.com:YuanfuC/LFLiveKit.git`)"
+  - "GPUImage (from `git@git.zerozero.cn:iOS/GPUImage.git`)"
+  - LFLiveKit (from `../../live_kit/LFLiveKit/`)
 
 EXTERNAL SOURCES:
+  GPUImage:
+    :git: "git@git.zerozero.cn:iOS/GPUImage.git"
   LFLiveKit:
-    :git: "git@github.com:YuanfuC/LFLiveKit.git"
+    :path: "../../live_kit/LFLiveKit/"
 
 CHECKOUT OPTIONS:
-  LFLiveKit:
-    :commit: 1fdbfacb7b6fa31d4829a13740c1a174ccf23b50
-    :git: "git@github.com:YuanfuC/LFLiveKit.git"
+  GPUImage:
+    :commit: eb78b0948344ad12b9adc0ee96449a7343c36495
+    :git: "git@git.zerozero.cn:iOS/GPUImage.git"
 
 SPEC CHECKSUMS:
-  LFLiveKit: 2219563721f8aa0f188effc3395a06e2d53b23f2
+  GPUImage: 6efb4b2f03d1019b989873651d3208e491256f87
+  LFLiveKit: 235f270a5eb1a315f7c782a51fb8671496382aef
 
-PODFILE CHECKSUM: 402375ae416de46c0d28b7b37bb53e66f8c39fec
+PODFILE CHECKSUM: 3b2fabf1c6b64a7c94541f0277b962ee16d208b4
 
 COCOAPODS: 1.8.4
