@@ -24,7 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)stopLive;
 
-- (void)pushFrame:(CVPixelBufferRef)frame;
+- (void)aycnPushFrame:(CVPixelBufferRef)frame;
 
 - (void)configDeviceRunning:(BOOL)camera microRunning:(BOOL)microphone;
 

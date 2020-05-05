@@ -45,7 +45,7 @@
     _isLiving = NO;
 }
 
-- (void)pushFrame:(CVPixelBufferRef)frame {
+- (void)aycnPushFrame:(CVPixelBufferRef)frame {
     CVPixelBufferRetain(frame);
     dispatch_async(self.pushQueue, ^{
         [self.session pushVideo:frame];
