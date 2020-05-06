@@ -217,7 +217,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         let date = NSDate()
         let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
         
-        self.liveController.pushFrame(mixedBuffer!);
+        self.liveController.aycnPushFrame(mixedBuffer!);
         
         DispatchQueue.main.sync {
             processLable.text = String.init(format: "mix: %.02f ms", -date.timeIntervalSinceNow * 1000)
@@ -295,7 +295,9 @@ extension ViewController {
     @objc func gestureCallback(ges: UIGestureRecognizer){
         let point = ges.location(in: self.rtpView)
         preview.center = point
-        self.mixer.inFrame =  self.mixer.calculateWindowPosition(backgroundViewFrame: self.rtpView.frame, windowViewFrame: self.preview.frame)    }
+        self.mixer.inFrame =  self.mixer.calculateWindowPosition(backgroundViewFrame: self.rtpView.frame, windowViewFrame: self.preview.frame)
+        print("x:\(self.mixer.inFrame.origin.x), y:\(self.mixer.inFrame.origin.x)")
+    }
     
     @objc func  mirrorFrame() {
         mixer.isMirror = !mixer.isMirror
