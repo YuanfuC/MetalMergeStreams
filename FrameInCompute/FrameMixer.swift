@@ -166,8 +166,9 @@ import MetalPerformanceShaders
         }
         
         // Copy texture to buffer
+        let bytesPerRow = CVPixelBufferGetBytesPerRow(sourcePixelFrame)
         guard let encoder = commandBuffer.makeBlitCommandEncoder(),
-            let textureBuffer = device.makeBuffer(length: descriptor.width * 4 * descriptor.height, options: .storageModeShared)else {
+            let textureBuffer = device.makeBuffer(length: bytesPerRow * descriptor.height, options: .storageModeShared)else {
                 return nil
         }
         encoder.copy(from: desTexture,
@@ -177,7 +178,7 @@ import MetalPerformanceShaders
                      sourceSize: MTLSize.init(width: desTexture.width, height: desTexture.height, depth: 1),
                      to: textureBuffer,
                      destinationOffset: 0,
-                     destinationBytesPerRow: desTexture.width * 4,
+                     destinationBytesPerRow: CVPixelBufferGetBytesPerRow(sourcePixelFrame),
                      destinationBytesPerImage: textureBuffer.length)
         encoder.endEncoding()
         commandBuffer.commit()
@@ -190,7 +191,7 @@ import MetalPerformanceShaders
                                      desTexture.height,
                                      pixelFormatType,
                                      textureBuffer.contents(),
-                                     1280 * 4,
+                                     CVPixelBufferGetBytesPerRow(sourcePixelFrame),
                                      nil,
                                      nil,
                                      nil,
