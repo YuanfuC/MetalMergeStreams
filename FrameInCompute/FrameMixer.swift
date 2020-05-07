@@ -8,6 +8,13 @@
 
 import CoreMedia
 import MetalKit
+import MetalPerformanceShaders
+
+@objc public enum PixelResizeMode: Int {
+    case scaleToFill = 1
+    case scaleAspectFit = 2
+    case scaleAspectFill = 3
+}
 
 @objc public class FrameMixer: NSObject {
     
@@ -86,7 +93,112 @@ import MetalKit
         var isMirror: Int
     }
     
-    @objc public func mixFrame(background:CVPixelBuffer, window:CVPixelBuffer) ->CVPixelBuffer? {
+    @objc public func resizeFrame(sourcePixelFrame:CVPixelBuffer, targetSize:MTLSize, resizeMode: PixelResizeMode) -> CVPixelBuffer? {
+        
+        guard let sourceTexture = makeTextureFromCVPixelBuffer(sourcePixelFrame) else {
+            print("FrameMixer resize convert to texture failed")
+            return nil
+        }
+        
+        guard let queue = self.commandQueue,
+        let commandBuffer = queue.makeCommandBuffer() else {
+                print("FrameMixer makeCommandBuffer failed")
+                return nil
+        }
+        
+        let device = queue.device;
+        
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: sourceTexture.pixelFormat, width: targetSize.width, height: targetSize.height, mipmapped: false)
+        descriptor.usage = [.shaderWrite, .shaderRead, .renderTarget]
+        
+        guard let desTexture = device.makeTexture(descriptor: descriptor) else {
+                  print("FrameMixer resize makeTexture failed")
+                  return nil
+        }
+        
+        // Scale texture
+        let sourceWidth = CVPixelBufferGetWidth(sourcePixelFrame)
+        let sourceHeight = CVPixelBufferGetHeight(sourcePixelFrame)
+        let widthRatio: Double = Double(targetSize.width) / Double(sourceWidth)
+        let heightRatio: Double = Double(targetSize.height) / Double(sourceHeight)
+        var scaleX: Double = 0;
+        var scaleY: Double  = 0;
+        var translateX: Double = 0;
+        var translateY: Double = 0;
+        if resizeMode == .scaleToFill {
+            //ScaleFill
+            scaleX = Double(targetSize.width) / Double(sourceWidth)
+            scaleY = Double(targetSize.height) / Double(sourceHeight)
+            
+        } else if resizeMode == .scaleAspectFit {
+            //AspectFit
+            if heightRatio > widthRatio {
+                scaleX = Double(targetSize.width) / Double(sourceWidth)
+                scaleY = scaleX
+                let currentHeight = Double(sourceHeight) * scaleY
+                translateY = (Double(targetSize.height) - currentHeight) * 0.5
+            } else {
+                scaleY = Double(targetSize.height) / Double(sourceHeight)
+                scaleX = scaleY
+                let currentWidth = Double(sourceWidth) * scaleX
+                translateX = (Double(targetSize.width) - currentWidth) * 0.5
+            }
+        } else if resizeMode == .scaleAspectFill {
+            //AspectFill
+            if heightRatio > widthRatio {
+                scaleY = Double(targetSize.height) / Double(sourceHeight)
+                scaleX = scaleY
+                let currentWidth = Double(sourceWidth) * scaleX
+                translateX = (Double(targetSize.width) - currentWidth) * 0.5
+                
+            } else {
+                scaleX = Double(targetSize.width) / Double(sourceWidth)
+                scaleY = scaleX
+                let currentHeight = Double(sourceHeight) * scaleY
+                translateY = (Double(targetSize.height) - currentHeight) * 0.5
+            }
+        }
+        var transform = MPSScaleTransform(scaleX: scaleX, scaleY: scaleY, translateX: translateX, translateY: translateY)
+        let scale = MPSImageBilinearScale.init(device: device)
+        withUnsafePointer(to: &transform) { (transformPtr: UnsafePointer<MPSScaleTransform>) -> () in
+            scale.scaleTransform = transformPtr
+            scale.encode(commandBuffer: commandBuffer, sourceTexture: sourceTexture, destinationTexture: desTexture)
+        }
+        
+        // Copy texture to buffer
+        guard let encoder = commandBuffer.makeBlitCommandEncoder(),
+            let textureBuffer = device.makeBuffer(length: descriptor.width * 4 * descriptor.height, options: .storageModeShared)else {
+                return nil
+        }
+        encoder.copy(from: desTexture,
+                     sourceSlice: 0,
+                     sourceLevel: 0,
+                     sourceOrigin: MTLOrigin.init(x: 0, y: 0, z: 0),
+                     sourceSize: MTLSize.init(width: desTexture.width, height: desTexture.height, depth: 1),
+                     to: textureBuffer,
+                     destinationOffset: 0,
+                     destinationBytesPerRow: desTexture.width * 4,
+                     destinationBytesPerImage: textureBuffer.length)
+        encoder.endEncoding()
+        commandBuffer.commit()
+        
+        // Create CVPixelBuffer from buffer
+        var resultBuffer: CVPixelBuffer?
+        let pixelFormatType = CVPixelBufferGetPixelFormatType(sourcePixelFrame)
+        CVPixelBufferCreateWithBytes(kCFAllocatorDefault,
+                                     desTexture.width,
+                                     desTexture.height,
+                                     pixelFormatType,
+                                     textureBuffer.contents(),
+                                     1280 * 4,
+                                     nil,
+                                     nil,
+                                     nil,
+                                     &resultBuffer)
+        return resultBuffer
+    }
+    
+    @objc public func mixFrame(background:CVPixelBuffer, window:CVPixelBuffer) -> CVPixelBuffer? {
         
         guard isPrepared,
             let outputPixelBufferPool = outputPixelBufferPool else {
