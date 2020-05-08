@@ -239,10 +239,14 @@ import MetalPerformanceShaders
             }
         }
         var transform = MPSScaleTransform(scaleX: scaleX, scaleY: scaleY, translateX: translateX, translateY: translateY)
-        let scale = MPSImageBilinearScale.init(device: device)
-        withUnsafePointer(to: &transform) { (transformPtr: UnsafePointer<MPSScaleTransform>) -> () in
-            scale.scaleTransform = transformPtr
-            scale.encode(commandBuffer: commandBuffer, sourceTexture: sourceTexture, destinationTexture: desTexture)
+        if #available(iOS 11.0, *) {
+            let scale = MPSImageBilinearScale.init(device: device)
+            withUnsafePointer(to: &transform) { (transformPtr: UnsafePointer<MPSScaleTransform>) -> () in
+                scale.scaleTransform = transformPtr
+                scale.encode(commandBuffer: commandBuffer, sourceTexture: sourceTexture, destinationTexture: desTexture)
+            }
+        } else {
+            print("Frame mixer resizeTexture failed, only support iOS 11.0")
         }
         
         commandBuffer.commit()
@@ -338,6 +342,10 @@ import MetalPerformanceShaders
         return texture
         
     }
+    
+    deinit {
+        print("FrameMixer dealloc")
+    }
 }
 
 extension FrameMixer {
@@ -405,4 +413,3 @@ extension FrameMixer {
         return dstPixelBuffer
     }
 }
-
