@@ -1,4 +1,4 @@
-#Metal merge streams 
+# Metal merge streams 
 Use `Metal` to merge CVPixelBuffers and resize CVPixelBuffer in hight performance.
 ## Merge frames
 * Time consuming 0.2 ~ 1.5 ms can make sure the living real-time.
