@@ -217,7 +217,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         let date = NSDate()
         let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
         
-        let resizeBuffer = mixer.resizeFrame(sourcePixelFrame: mixedBuffer!, targetSize: MTLSize.init(width: 1280, height: 320, depth: 0), resizeMode: .scaleToFill)
+        let resizeBuffer = mixer.resizeFrame(sourcePixelFrame: mixedBuffer!, targetSize: MTLSize.init(width: 1280 * 2, height: 1280 * 2, depth: 0), resizeMode: .scaleToFill)
         
         self.liveController.aycnPushFrame(mixedBuffer!);
         
