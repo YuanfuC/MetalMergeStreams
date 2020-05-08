@@ -21,7 +21,7 @@ import MetalPerformanceShaders
     @objc public var inFrame = CGRect.zero
     @objc public var isPrepared:Bool = false
     @objc public var isMirror:Bool = false
-
+    
     private let metalDevice:MTLDevice? = MTLCreateSystemDefaultDevice()
     private let computePipelineState:MTLComputePipelineState?
     private var textureCache: CVMetalTextureCache?
@@ -36,6 +36,9 @@ import MetalPerformanceShaders
     private(set) var inputFormatDescription: CMFormatDescription?
     private(set) var outputFormatDescription: CMFormatDescription?
     private var outputPixelBufferPool: CVPixelBufferPool?
+    
+    private var resizePoolDimensions = CMVideoDimensions.init(width: 0, height: 0)
+    private var resizePixelBufferPool: CVPixelBufferPool?
     
     @objc public override init() {
         guard let device = metalDevice,
@@ -87,23 +90,48 @@ import MetalPerformanceShaders
         isPrepared = true
     }
     
-    struct MixerParameters {
-        var position: SIMD2<Float>
-        var size: SIMD2<Float>
-        var isMirror: Int
+    @objc public func resizePixelBufferWithPool(sourcePixelFrame:CVPixelBuffer, targetSize:MTLSize, resizeMode: PixelResizeMode) -> CVPixelBuffer? {
+        
+        guard isPrepared,
+            let description = outputFormatDescription else {
+                assertionFailure("FrameMixer resize invalid state: Not prepared")
+                return nil
+        }
+        
+        if (self.resizePixelBufferPool == nil ||  self.resizePoolDimensions.width != targetSize.width || self.resizePoolDimensions.height != targetSize.height) {
+            self.resizePoolDimensions = CMVideoDimensions.init(width: Int32(targetSize.width), height: Int32(targetSize.height))
+            (resizePixelBufferPool,_,_) = allocOutputBufferPool(with: description, outputRetainedBufferCountHint: 3, dimension: resizePoolDimensions)
+        }
+        
+        guard let outputPixelBufferPool = resizePixelBufferPool else {
+            print("FrameMixer resize create pixel bufferpool failed")
+            return nil
+        }
+        
+        var newPixelBuffer:CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, outputPixelBufferPool, &newPixelBuffer)
+        guard let outputPixelBuffer = newPixelBuffer else {
+            print("FrameMixer failed: Could not get pixel buffer from pool (\(self))")
+            return nil
+        }
+        
+        guard let desTexture = makeTextureFromCVPixelBuffer(outputPixelBuffer),
+            let sourceTexture = makeTextureFromCVPixelBuffer(sourcePixelFrame) else {
+                return nil
+        }
+        resizeTexture(sourceTexture: sourceTexture, desTexture: desTexture, targetSize: targetSize, resizeMode: resizeMode)
+        return newPixelBuffer
     }
     
-    @objc public func resizeFrame(sourcePixelFrame:CVPixelBuffer, targetSize:MTLSize, resizeMode: PixelResizeMode) -> CVPixelBuffer? {
+    @objc public func resizePixelBufferNeedCopy(sourcePixelFrame:CVPixelBuffer, targetSize:MTLSize, resizeMode: PixelResizeMode) -> CVPixelBuffer? {
         
         guard let sourceTexture = makeTextureFromCVPixelBuffer(sourcePixelFrame) else {
             print("FrameMixer resize convert to texture failed")
             return nil
         }
-        
-        guard let queue = self.commandQueue,
-            let commandBuffer = queue.makeCommandBuffer() else {
-                print("FrameMixer makeCommandBuffer failed")
-                return nil
+        guard let queue = self.commandQueue else {
+            print("FrameMixer makeCommandBuffer failed")
+            return nil
         }
         
         let device = queue.device;
@@ -116,9 +144,61 @@ import MetalPerformanceShaders
             return nil
         }
         
+        self.resizeTexture(sourceTexture:sourceTexture, desTexture: desTexture, targetSize: targetSize, resizeMode: resizeMode)
+        
+        // Copy texture to buffer
+        let bytesPerPoint = CVPixelBufferGetBytesPerRow(sourcePixelFrame) / CVPixelBufferGetWidth(sourcePixelFrame)
+        guard let commandBuffer = queue.makeCommandBuffer() ,
+            let encoder = commandBuffer.makeBlitCommandEncoder(),
+            let textureBuffer = device.makeBuffer(length: targetSize.width * targetSize.height * bytesPerPoint, options: .storageModeShared)else {
+                return nil
+        }
+        encoder.copy(from: desTexture,
+                     sourceSlice: 0,
+                     sourceLevel: 0,
+                     sourceOrigin: MTLOrigin.init(x: 0, y: 0, z: 0),
+                     sourceSize: MTLSize.init(width: desTexture.width, height: desTexture.height, depth: 1),
+                     to: textureBuffer,
+                     destinationOffset: 0,
+                     destinationBytesPerRow: targetSize.width * bytesPerPoint,
+                     destinationBytesPerImage: textureBuffer.length)
+        encoder.endEncoding()
+        commandBuffer.commit()
+        commandBuffer.waitUntilCompleted()
+        
+        // Create CVPixelBuffer from buffer
+        var resultBuffer: CVPixelBuffer?
+        let pixelFormatType = CVPixelBufferGetPixelFormatType(sourcePixelFrame)
+        CVPixelBufferCreateWithBytes(kCFAllocatorDefault,
+                                     desTexture.width,
+                                     desTexture.height,
+                                     pixelFormatType,
+                                     textureBuffer.contents(),
+                                     targetSize.width * bytesPerPoint,
+                                     nil,
+                                     nil,
+                                     nil,
+                                     &resultBuffer)
+        let attributes : [NSObject:AnyObject] = [
+            kCVPixelBufferIOSurfacePropertiesKey : NSDictionary.init(),
+        ]
+        // Copy for IOSuerface back off
+        let buffer = deepCopyPixelBuffer(srcPixelBuffer: resultBuffer!,attributes:attributes as! [String : Any])
+        return buffer
+    }
+    
+    func resizeTexture(sourceTexture:MTLTexture, desTexture:MTLTexture, targetSize:MTLSize, resizeMode:PixelResizeMode) {
+        guard let queue = self.commandQueue,
+            let commandBuffer = queue.makeCommandBuffer() else {
+                print("FrameMixer resizeTexture command buffer create failed")
+                return
+        }
+        
+        let device = queue.device;
+        
         // Scale texture
-        let sourceWidth = CVPixelBufferGetWidth(sourcePixelFrame)
-        let sourceHeight = CVPixelBufferGetHeight(sourcePixelFrame)
+        let sourceWidth = sourceTexture.width
+        let sourceHeight = sourceTexture.height
         let widthRatio: Double = Double(targetSize.width) / Double(sourceWidth)
         let heightRatio: Double = Double(targetSize.height) / Double(sourceHeight)
         var scaleX: Double = 0;
@@ -165,97 +245,14 @@ import MetalPerformanceShaders
             scale.encode(commandBuffer: commandBuffer, sourceTexture: sourceTexture, destinationTexture: desTexture)
         }
         
-        // Copy texture to buffer
-        let bytesPerPoint = CVPixelBufferGetBytesPerRow(sourcePixelFrame) / CVPixelBufferGetWidth(sourcePixelFrame)
-        guard let encoder = commandBuffer.makeBlitCommandEncoder(),
-            let textureBuffer = device.makeBuffer(length: targetSize.width * targetSize.height * bytesPerPoint, options: .storageModeShared)else {
-                return nil
-        }
-        encoder.copy(from: desTexture,
-                     sourceSlice: 0,
-                     sourceLevel: 0,
-                     sourceOrigin: MTLOrigin.init(x: 0, y: 0, z: 0),
-                     sourceSize: MTLSize.init(width: desTexture.width, height: desTexture.height, depth: 1),
-                     to: textureBuffer,
-                     destinationOffset: 0,
-                     destinationBytesPerRow: targetSize.width * bytesPerPoint,
-                     destinationBytesPerImage: textureBuffer.length)
-        encoder.endEncoding()
         commandBuffer.commit()
         commandBuffer.waitUntilCompleted()
-        
-        // Create CVPixelBuffer from buffer
-        var resultBuffer: CVPixelBuffer?
-        let pixelFormatType = CVPixelBufferGetPixelFormatType(sourcePixelFrame)
-        CVPixelBufferCreateWithBytes(kCFAllocatorDefault,
-                                     desTexture.width,
-                                     desTexture.height,
-                                     pixelFormatType,
-                                     textureBuffer.contents(),
-                                     targetSize.width * bytesPerPoint,
-                                     nil,
-                                     nil,
-                                     nil,
-                                     &resultBuffer)
-        let attributes : [NSObject:AnyObject] = [
-            kCVPixelBufferIOSurfacePropertiesKey : NSDictionary.init(),
-        ]
-        // Copy for IOSuerface back off
-        let buffer = deepCopy(srcPixelBuffer: resultBuffer!,attributes:attributes as! [String : Any])
-        return buffer
     }
     
-    func deepCopy(srcPixelBuffer:CVPixelBuffer, attributes: [String: Any] = [:]) -> CVPixelBuffer? {
-      let srcFlags: CVPixelBufferLockFlags = .readOnly
-      guard kCVReturnSuccess == CVPixelBufferLockBaseAddress(srcPixelBuffer, srcFlags) else {
-        return nil
-      }
-      defer { CVPixelBufferUnlockBaseAddress(srcPixelBuffer, srcFlags) }
-
-      var combinedAttributes: [String: Any] = [:]
-
-      // Copy attachment attributes.
-      if let attachments = CVBufferGetAttachments(srcPixelBuffer, .shouldPropagate) as? [String: Any] {
-        for (key, value) in attachments {
-          combinedAttributes[key] = value
-        }
-      }
-
-      // Add user attributes.
-      combinedAttributes = combinedAttributes.merging(attributes) { $1 }
-
-      var maybePixelBuffer: CVPixelBuffer?
-      let status = CVPixelBufferCreate(kCFAllocatorDefault,
-                                       CVPixelBufferGetWidth(srcPixelBuffer),
-                                       CVPixelBufferGetHeight(srcPixelBuffer),
-                                       CVPixelBufferGetPixelFormatType(srcPixelBuffer),
-                                       combinedAttributes as CFDictionary,
-                                       &maybePixelBuffer)
-
-      guard status == kCVReturnSuccess, let dstPixelBuffer = maybePixelBuffer else {
-        return nil
-      }
-
-      let dstFlags = CVPixelBufferLockFlags(rawValue: 0)
-      guard kCVReturnSuccess == CVPixelBufferLockBaseAddress(dstPixelBuffer, dstFlags) else {
-        return nil
-      }
-      defer { CVPixelBufferUnlockBaseAddress(dstPixelBuffer, dstFlags) }
-
-      for plane in 0...max(0, CVPixelBufferGetPlaneCount(srcPixelBuffer) - 1) {
-        if let srcAddr = CVPixelBufferGetBaseAddressOfPlane(srcPixelBuffer, plane),
-           let dstAddr = CVPixelBufferGetBaseAddressOfPlane(dstPixelBuffer, plane) {
-          let srcBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(srcPixelBuffer, plane)
-          let dstBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(dstPixelBuffer, plane)
-
-          for h in 0..<CVPixelBufferGetHeightOfPlane(srcPixelBuffer, plane) {
-            let srcPtr = srcAddr.advanced(by: h*srcBytesPerRow)
-            let dstPtr = dstAddr.advanced(by: h*dstBytesPerRow)
-            dstPtr.copyMemory(from: srcPtr, byteCount: srcBytesPerRow)
-          }
-        }
-      }
-      return dstPixelBuffer
+    struct MixerParameters {
+        var position: SIMD2<Float>
+        var size: SIMD2<Float>
+        var isMirror: Int
     }
     
     @objc public func mixFrame(background:CVPixelBuffer, window:CVPixelBuffer) -> CVPixelBuffer? {
@@ -354,6 +351,58 @@ extension FrameMixer {
     
 }
 
-
-
+extension FrameMixer {
+    func deepCopyPixelBuffer(srcPixelBuffer:CVPixelBuffer, attributes: [String: Any] = [:]) -> CVPixelBuffer? {
+        let srcFlags: CVPixelBufferLockFlags = .readOnly
+        guard kCVReturnSuccess == CVPixelBufferLockBaseAddress(srcPixelBuffer, srcFlags) else {
+            return nil
+        }
+        defer { CVPixelBufferUnlockBaseAddress(srcPixelBuffer, srcFlags) }
+        
+        var combinedAttributes: [String: Any] = [:]
+        
+        // Copy attachment attributes.
+        if let attachments = CVBufferGetAttachments(srcPixelBuffer, .shouldPropagate) as? [String: Any] {
+            for (key, value) in attachments {
+                combinedAttributes[key] = value
+            }
+        }
+        
+        // Add user attributes.
+        combinedAttributes = combinedAttributes.merging(attributes) { $1 }
+        
+        var maybePixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(kCFAllocatorDefault,
+                                         CVPixelBufferGetWidth(srcPixelBuffer),
+                                         CVPixelBufferGetHeight(srcPixelBuffer),
+                                         CVPixelBufferGetPixelFormatType(srcPixelBuffer),
+                                         combinedAttributes as CFDictionary,
+                                         &maybePixelBuffer)
+        
+        guard status == kCVReturnSuccess, let dstPixelBuffer = maybePixelBuffer else {
+            return nil
+        }
+        
+        let dstFlags = CVPixelBufferLockFlags(rawValue: 0)
+        guard kCVReturnSuccess == CVPixelBufferLockBaseAddress(dstPixelBuffer, dstFlags) else {
+            return nil
+        }
+        defer { CVPixelBufferUnlockBaseAddress(dstPixelBuffer, dstFlags) }
+        
+        for plane in 0...max(0, CVPixelBufferGetPlaneCount(srcPixelBuffer) - 1) {
+            if let srcAddr = CVPixelBufferGetBaseAddressOfPlane(srcPixelBuffer, plane),
+                let dstAddr = CVPixelBufferGetBaseAddressOfPlane(dstPixelBuffer, plane) {
+                let srcBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(srcPixelBuffer, plane)
+                let dstBytesPerRow = CVPixelBufferGetBytesPerRowOfPlane(dstPixelBuffer, plane)
+                
+                for h in 0..<CVPixelBufferGetHeightOfPlane(srcPixelBuffer, plane) {
+                    let srcPtr = srcAddr.advanced(by: h*srcBytesPerRow)
+                    let dstPtr = dstAddr.advanced(by: h*dstBytesPerRow)
+                    dstPtr.copyMemory(from: srcPtr, byteCount: srcBytesPerRow)
+                }
+            }
+        }
+        return dstPixelBuffer
+    }
+}
 

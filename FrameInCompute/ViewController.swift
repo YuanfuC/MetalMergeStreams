@@ -214,10 +214,14 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
             mixer.prepare(with: des, outputRetainedBufferCountHint: 3)
         }
         
-        let date = NSDate()
         let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
         
-        let resizeBuffer = mixer.resizeFrame(sourcePixelFrame: mixedBuffer!, targetSize: MTLSize.init(width: 640, height: 640, depth: 0), resizeMode: .scaleAspectFit)
+        let date = NSDate()
+        let resizedBuffer = mixer.resizePixelBufferWithPool(sourcePixelFrame: rptBuffer, targetSize: MTLSize.init(width: 640, height: 640, depth: 0), resizeMode: .scaleAspectFit)
+        let date2 = NSDate()
+        let resize1Time = -date.timeIntervalSinceNow * 1000
+        let resized2Buffer = mixer.resizePixelBufferNeedCopy(sourcePixelFrame: rptBuffer, targetSize: MTLSize.init(width: 640, height: 640, depth: 0), resizeMode: .scaleAspectFit)
+        print(String.init(format: "ResizeWithPool:%.02fms, resizeWithCopy:%.02fms", resize1Time, -date2.timeIntervalSinceNow * 1000))
         
         self.liveController.aycnPushFrame(mixedBuffer!);
         
@@ -289,7 +293,7 @@ extension ViewController {
         liveButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         liveButton.setTitleColor(UIColor.white, for: .normal)
         liveButton.backgroundColor = UIColor.green
-
+        
         let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
         self.preview.addGestureRecognizer(gesture)
     }
@@ -308,7 +312,7 @@ extension ViewController {
     
     @objc func liveAction(sender:UIButton) {
         if self.liveController.isLiving == false {
-                    self.liveController.configDeviceRunning(false, microRunning: true)
+            self.liveController.configDeviceRunning(false, microRunning: true)
             self.liveController.startLive(withURL: "rtmp://bvc.live-send.acg.tv/live-bvc/?streamname=live_28800896_3667210&key=f4107af62fb0089a447ab46ec12eae04")
             sender.setTitle("停止直播", for: .normal)
             sender.backgroundColor = UIColor.red
