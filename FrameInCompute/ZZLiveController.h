@@ -8,7 +8,7 @@
 
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
-#import "LFLiveKit.h"
+#import <LFLiveKit/LFLiveKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -26,8 +26,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)aycnPushFrame:(CVPixelBufferRef)frame;
 
-- (void)configDeviceRunning:(BOOL)camera microRunning:(BOOL)microphone;
+- (void)configDeviceRunningCamera:(BOOL)camera microRunning:(BOOL)microphone;
+
+- (void)shouldMute:(BOOL)mute;
 
 @end
 
 NS_ASSUME_NONNULL_END
+

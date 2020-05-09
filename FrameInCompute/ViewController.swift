@@ -15,12 +15,15 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     let preview = PreviewView.init()
     let rtpView = DisplayView.init()
     let processLable = UILabel.init()
+    let resizeWithPoolLable = UILabel.init()
+    let resizeWithoutPoolLable = UILabel.init()
     let rtpFpsLabel = UILabel.init()
     let frontCameraFpsLable = UILabel.init()
     let recordingLable = UILabel.init()
     let recordingButton = UIButton.init(type: .custom)
     let mirrorButton = UIButton.init(type: .custom)
     let liveButton = UIButton.init(type: .custom)
+    let muteButton = UIButton.init(type: .custom)
     
     let liveController = ZZLiveController.init()
     
@@ -214,19 +217,24 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
             mixer.prepare(with: des, outputRetainedBufferCountHint: 3)
         }
         
+        var date = NSDate()
         let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
-        
-        let date = NSDate()
+        let mixBufferTime = -date.timeIntervalSinceNow * 1000
+
+        date = NSDate()
         let resizedBuffer = mixer.resizePixelBufferWithPool(sourcePixelFrame: rptBuffer, targetSize: MTLSize.init(width: 640, height: 640, depth: 0), resizeMode: .scaleAspectFit)
-        let date2 = NSDate()
-        let resize1Time = -date.timeIntervalSinceNow * 1000
+        let resizeWithPoolTime = -date.timeIntervalSinceNow * 1000
+        
+        date = NSDate()
         let resized2Buffer = mixer.resizePixelBufferNeedCopy(sourcePixelFrame: rptBuffer, targetSize: MTLSize.init(width: 640, height: 640, depth: 0), resizeMode: .scaleAspectFit)
-        print(String.init(format: "ResizeWithPool:%.02fms, resizeWithCopy:%.02fms", resize1Time, -date2.timeIntervalSinceNow * 1000))
+        let resizeWithCopyTime = -date.timeIntervalSinceNow * 1000
         
         self.liveController.aycnPushFrame(mixedBuffer!);
         
         DispatchQueue.main.sync {
-            processLable.text = String.init(format: "mix: %.02f ms", -date.timeIntervalSinceNow * 1000)
+            processLable.text = String.init(format: "mix: %.02f ms", mixBufferTime)
+            resizeWithPoolLable.text = String.init(format: "pool-resize: %.02f ms", resizeWithPoolTime)
+            resizeWithoutPoolLable.text = String.init(format: "copy-resize: %.02f ms", resizeWithCopyTime)
         }
         
         if -fpsDebugDate.timeIntervalSinceNow >= 1.0 {
@@ -262,13 +270,21 @@ extension ViewController {
         rtpView.addSubview(preview)
         processLable.frame = CGRect.init(x: 10, y: 5, width: 200, height: 20)
         processLable.textColor = UIColor.red
+        let lablelMarge:CGFloat = 30
+        resizeWithPoolLable.frame = CGRect.init(x: 10, y: processLable.frame.origin.y + lablelMarge, width: 200, height: 20)
+        resizeWithPoolLable.textColor = UIColor.red
         
-        rtpFpsLabel.frame = CGRect.init(x: 10, y: 5 + 5 + 20, width: 200, height: 20)
+        resizeWithoutPoolLable.frame = CGRect.init(x: 10, y: resizeWithPoolLable.frame.origin.y + lablelMarge, width: 200, height: 20)
+        resizeWithoutPoolLable.textColor = UIColor.red
+        
+        rtpFpsLabel.frame = CGRect.init(x: 10, y: resizeWithoutPoolLable.frame.origin.y + lablelMarge, width: 200, height: 20)
         rtpFpsLabel.textColor = UIColor.blue
         
-        frontCameraFpsLable.frame = CGRect.init(x: 10, y: 5 + (5 + 20) * 2, width: 200, height: 20)
+        frontCameraFpsLable.frame = CGRect.init(x: 10, y:rtpFpsLabel.frame.origin.y + lablelMarge, width: 200, height: 20)
         frontCameraFpsLable.textColor = UIColor.green
         rtpView.addSubview(processLable)
+        rtpView.addSubview(resizeWithPoolLable)
+        rtpView.addSubview(resizeWithoutPoolLable)
         rtpView.addSubview(rtpFpsLabel)
         rtpView.addSubview(frontCameraFpsLable)
         
@@ -278,6 +294,7 @@ extension ViewController {
         recordingButton.addTarget(self, action: #selector(buttonClick), for: .touchUpInside)
         recordingButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         recordingButton.setTitleColor(UIColor.systemPink, for: .normal)
+        recordingButton.backgroundColor = UIColor.brown
         
         mirrorButton.frame = CGRect.init(x: 80, y:recordingButton.frame.origin.y - 40, width: 80, height: 44)
         self.view.addSubview(mirrorButton)
@@ -285,14 +302,23 @@ extension ViewController {
         mirrorButton.addTarget(self, action: #selector(mirrorFrame), for: .touchUpInside)
         mirrorButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         mirrorButton.setTitleColor(UIColor.systemPink, for: .normal)
+        mirrorButton.backgroundColor = UIColor.gray
         
         liveButton.frame = CGRect.init(x: 80, y: mirrorButton.frame.origin.y - 40, width: 80, height: 44)
         self.view.addSubview(liveButton)
-        liveButton.setTitle("启动直播", for: .normal)
+        liveButton.setTitle("start-live", for: .normal)
         liveButton.addTarget(self, action: #selector(liveAction), for: .touchUpInside)
         liveButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
         liveButton.setTitleColor(UIColor.white, for: .normal)
         liveButton.backgroundColor = UIColor.green
+        
+        muteButton.frame = CGRect.init(x: 80, y: liveButton.frame.origin.y - 40, width: 80, height: 44)
+        self.view.addSubview( muteButton)
+        muteButton.setTitle("mute-live", for: .normal)
+        muteButton.addTarget(self, action: #selector(muteAction), for: .touchUpInside)
+        muteButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        muteButton.setTitleColor(UIColor.white, for: .normal)
+        muteButton.backgroundColor = UIColor.gray
         
         let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
         self.preview.addGestureRecognizer(gesture)
@@ -312,16 +338,28 @@ extension ViewController {
     
     @objc func liveAction(sender:UIButton) {
         if self.liveController.isLiving == false {
-            self.liveController.configDeviceRunning(false, microRunning: true)
+            self.liveController.configDeviceRunningCamera(false, microRunning: true)
             self.liveController.startLive(withURL: "rtmp://bvc.live-send.acg.tv/live-bvc/?streamname=live_28800896_3667210&key=f4107af62fb0089a447ab46ec12eae04")
-            sender.setTitle("停止直播", for: .normal)
+            sender.setTitle("stop-live", for: .normal)
             sender.backgroundColor = UIColor.red
         } else {
             self.liveController.stopLive()
-            sender.setTitle("开始直播", for: .normal)
+            sender.setTitle("start-live", for: .normal)
             sender.backgroundColor = UIColor.green
         }
     }
+    
+    @objc func  muteAction(sender:UIButton) {
+        if sender.tag == 0 {
+            sender.tag = 1;
+            self.liveController.shouldMute(true)
+            sender.setTitle("unmute", for: .normal)
+        } else {
+            sender.tag = 0;
+            self.liveController.shouldMute(false)
+            sender.setTitle("mute-live", for: .normal)
+        }
+      }
     
     @objc func  buttonClick() {
         

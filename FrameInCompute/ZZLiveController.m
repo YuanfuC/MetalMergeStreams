@@ -53,7 +53,7 @@
     });
 }
 
-- (void)configDeviceRunning:(BOOL)camera microRunning:(BOOL)microphone {
+- (void)configDeviceRunningCamera:(BOOL)camera microRunning:(BOOL)microphone {
     [self.session configDeviceRunningForCamera:camera microphone:microphone];
     if (camera || microphone) {
         self.session.running = true;
@@ -62,6 +62,13 @@
     }
 }
 
+- (void)shouldMute:(BOOL)mute {
+    if (self.session.muted == mute) {
+        return;
+    }
+    
+    self.session.muted = mute;
+}
 
 #pragma mark - Session delegate
 
@@ -73,19 +80,19 @@
     }
     switch (state) {
         case LFLiveReady:
-            NSLog( @"未连接");
+            NSLog( @"ZZLiveController live-connect ready");
             break;
         case LFLivePending:
-            NSLog( @"连接中");
+            NSLog( @"ZZLiveController live-connect pending");
             break;
         case LFLiveStart:
-            NSLog( @"已连接");
+            NSLog( @"ZZLiveController live-connect connected");
             break;
         case LFLiveError:
-            NSLog( @"连接错误");
+             NSLog( @"ZZLiveController live-connect error");
             break;
         case LFLiveStop:
-            NSLog( @"未连接");
+            NSLog( @"ZZLiveController live-connect disconnected");
             break;
         default:
             break;
@@ -139,5 +146,10 @@
     return _pushQueue;
 }
 
+-(void)dealloc {
+    NSLog(@"%s",__func__);
+}
+
 
 @end
+
