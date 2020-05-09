@@ -26,6 +26,6 @@ Use `Metal` to merge CVPixelBuffers and resize CVPixelBuffer in hight performanc
 * Compute and wait for completion
 * `MTLBlitCommandEncoder` copy computed texture from GPU to CPU as `MTLBuffer`
 * Create output CVPixelBuffer from `MTLBuffer`, but the output CVPixelBuffer is not IOSurface-backed
-* Deep copy output CVPixelBuffer and config tthe copied output is IOSurface-backed
+* Deep copy output CVPixelBuffer and config the copied output is IOSurface-backed
 
 
