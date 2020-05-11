@@ -9,22 +9,22 @@
 import Foundation
 import AVFoundation
 
-protocol CaptureDataOutputDelegate:AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate{}
+@objc public protocol CaptureDataOutputDelegate:AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate{}
 
-@objc class DeviceCapture: NSObject {
+@objc public class DeviceCapture: NSObject {
     
-    let cameraOutput = AVCaptureVideoDataOutput()
-    let microphoneOutput = AVCaptureAudioDataOutput()
+    @objc public let cameraOutput = AVCaptureVideoDataOutput()
+    @objc public let microphoneOutput = AVCaptureAudioDataOutput()
     private let captureSession = AVCaptureSession()
     private var microphoneInput: AVCaptureDeviceInput?
     private var videoInput: AVCaptureInput?
     
-    func setSampleBufferDelegate<T:CaptureDataOutputDelegate>(_ sampleBufferDelegate: T, queue sampleBufferCallbackQueue: DispatchQueue?) {
+    @objc public func setSampleBufferDelegate(_ sampleBufferDelegate: CaptureDataOutputDelegate, queue sampleBufferCallbackQueue: DispatchQueue?) {
         cameraOutput.setSampleBufferDelegate(sampleBufferDelegate, queue: sampleBufferCallbackQueue)
         microphoneOutput.setSampleBufferDelegate(sampleBufferDelegate, queue: sampleBufferCallbackQueue)
     }
-
-    func launchCamera(for mediaType: AVMediaType?, position: AVCaptureDevice.Position) -> AVCaptureSession? {
+    
+    @objc public func launchCamera(for mediaType: AVMediaType?, whichCamera: AVCaptureDevice.Position, orientation:AVCaptureVideoOrientation) -> AVCaptureSession? {
         guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
             print("DeviceCapture Camera device is not eixst")
             return nil
@@ -53,6 +53,8 @@ protocol CaptureDataOutputDelegate:AVCaptureVideoDataOutputSampleBufferDelegate,
         
         if captureSession.canAddOutput(cameraOutput) {
             captureSession.addOutput(cameraOutput)
+            let conection = cameraOutput.connection(with: .video)
+            conection?.videoOrientation = .landscapeRight
         }else {
             print("DeviceCapture can't add video output to the session.")
             captureSession.commitConfiguration()
@@ -62,7 +64,7 @@ protocol CaptureDataOutputDelegate:AVCaptureVideoDataOutputSampleBufferDelegate,
         return captureSession;
     }
     
-    func launchMicrophone() ->AVCaptureSession? {
+    @objc public func launchMicrophone() ->AVCaptureSession? {
         captureSession.beginConfiguration()
         
         guard let audioDevice = AVCaptureDevice.default(for: .audio) else {
@@ -94,4 +96,28 @@ protocol CaptureDataOutputDelegate:AVCaptureVideoDataOutputSampleBufferDelegate,
         return captureSession
     }
     
+    @objc public func switchCamera(for mediaType: AVMediaType?, position: AVCaptureDevice.Position) -> Void {
+        self.captureSession.beginConfiguration()
+        if let videoInput = self.videoInput {
+            self.captureSession.removeInput(videoInput)
+        }
+        
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: mediaType, position: position),
+            let  videoDeviceInput = try? AVCaptureDeviceInput(device: device) else {
+                print("DeviceCapture Switch Camera device is not eixst")
+                self.captureSession.commitConfiguration()
+                return
+        }
+        self.videoInput = videoDeviceInput
+        if captureSession.canAddInput(videoDeviceInput) {
+            captureSession.addInput(videoDeviceInput)
+        } else {
+            print("DeviceCapture Swtich can't add video device input to the session.")
+        }
+        captureSession.commitConfiguration()
+    }
+    
+    deinit {
+        print("DeviceCapture dealloc")
+    }    
 }

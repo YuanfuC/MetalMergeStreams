@@ -24,6 +24,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     let mirrorButton = UIButton.init(type: .custom)
     let liveButton = UIButton.init(type: .custom)
     let muteButton = UIButton.init(type: .custom)
+    let switchButton = UIButton.init(type: .custom)
     
     let liveController = ZZLiveController.init()
     
@@ -154,7 +155,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     //MARK: - Open camera and microphone
     
     func launchDevices(){
-        guard let _ = deviceCapture.launchCamera(for: .video, position: .front) else {
+        guard let _ = deviceCapture.launchCamera(for: .video, whichCamera: .front, orientation: .landscapeLeft) else {
             print("Launch camera device failed")
             return
         }
@@ -220,7 +221,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         var date = NSDate()
         let mixedBuffer = mixer.mixFrame(background: rptBuffer, window: pixelBuffer)
         let mixBufferTime = -date.timeIntervalSinceNow * 1000
-
+        
         date = NSDate()
         let resizedBuffer = mixer.resizePixelBufferWithPool(sourcePixelFrame: rptBuffer, targetSize: MTLSize.init(width: 640, height: 640, depth: 0), resizeMode: .scaleAspectFit)
         let resizeWithPoolTime = -date.timeIntervalSinceNow * 1000
@@ -320,6 +321,15 @@ extension ViewController {
         muteButton.setTitleColor(UIColor.white, for: .normal)
         muteButton.backgroundColor = UIColor.gray
         
+        switchButton.frame = CGRect.init(x: recordingButton.frame.origin.x + 80, y:recordingButton.frame.origin.y , width: 80, height: 44)
+        self.view.addSubview(switchButton)
+        switchButton.setTitle("cam-switch", for: .normal)
+        switchButton.addTarget(self, action: #selector(switchCamera), for: .touchUpInside)
+        switchButton.titleLabel?.font = UIFont.systemFont(ofSize: 14)
+        switchButton.setTitleColor(UIColor.white, for: .normal)
+        switchButton.backgroundColor = UIColor.darkGray
+        
+        
         let gesture = UIPanGestureRecognizer.init(target: self, action: #selector(gestureCallback))
         self.preview.addGestureRecognizer(gesture)
     }
@@ -349,6 +359,16 @@ extension ViewController {
         }
     }
     
+    @objc func switchCamera(sender:UIButton) {
+        if sender.tag == 0 {
+            sender.tag = 1;
+            self.deviceCapture.switchCamera(for: .video, position: .back)
+        } else {
+            sender.tag = 0;
+            self.deviceCapture.switchCamera(for: .video, position: .front)
+        }
+    }
+    
     @objc func  muteAction(sender:UIButton) {
         if sender.tag == 0 {
             sender.tag = 1;
@@ -359,7 +379,7 @@ extension ViewController {
             self.liveController.shouldMute(false)
             sender.setTitle("mute-live", for: .normal)
         }
-      }
+    }
     
     @objc func  buttonClick() {
         
