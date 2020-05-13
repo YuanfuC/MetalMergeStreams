@@ -18,18 +18,34 @@ import AVFoundation
     private let captureSession = AVCaptureSession()
     private var microphoneInput: AVCaptureDeviceInput?
     private var videoInput: AVCaptureInput?
+    private var videoDevice:AVCaptureDevice?
+    private var resolution: AVCaptureSession.Preset = .hd1280x720
     
     @objc public func setSampleBufferDelegate(_ sampleBufferDelegate: CaptureDataOutputDelegate, queue sampleBufferCallbackQueue: DispatchQueue?) {
         cameraOutput.setSampleBufferDelegate(sampleBufferDelegate, queue: sampleBufferCallbackQueue)
         microphoneOutput.setSampleBufferDelegate(sampleBufferDelegate, queue: sampleBufferCallbackQueue)
     }
     
-    @objc public func launchCamera(for mediaType: AVMediaType?, whichCamera: AVCaptureDevice.Position, orientation:AVCaptureVideoOrientation) -> AVCaptureSession? {
-        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) else {
+    @objc public func setupResolution(preset: AVCaptureSession.Preset) {
+        self.resolution = preset
+        captureSession.beginConfiguration()
+        
+        if let device = videoDevice,
+            captureSession.canSetSessionPreset(preset) && device.supportsSessionPreset(preset) {
+            captureSession.sessionPreset = preset
+        } else {
+            assertionFailure("Session preset can't be set")
+        }
+        captureSession.commitConfiguration()
+    }
+    
+    @objc public func launchCamera(for mediaType: AVMediaType, whichCamera: AVCaptureDevice.Position, orientation:AVCaptureVideoOrientation, preset:AVCaptureSession.Preset) -> AVCaptureSession? {
+        guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: mediaType, position: whichCamera) else {
             print("DeviceCapture Camera device is not eixst")
             return nil
         }
         
+        videoDevice = device
         videoInput = try? AVCaptureDeviceInput(device: device)
         guard let videoDeviceInput = videoInput else {
             print("DeviceCapture create video input failed")
@@ -46,21 +62,19 @@ import AVFoundation
             return nil
         }
         
-        captureSession.sessionPreset = .hd1280x720
-        device.supportsSessionPreset(.hd1280x720)
-        captureSession.commitConfiguration()
         cameraOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA]
         
         if captureSession.canAddOutput(cameraOutput) {
             captureSession.addOutput(cameraOutput)
-            let conection = cameraOutput.connection(with: .video)
-            conection?.videoOrientation = .landscapeRight
+            let conection = cameraOutput.connection(with: mediaType)
+            conection?.videoOrientation = orientation
         }else {
             print("DeviceCapture can't add video output to the session.")
             captureSession.commitConfiguration()
             return nil
         }
-        
+        captureSession.commitConfiguration()
+        setupResolution(preset: preset)
         return captureSession;
     }
     
@@ -96,7 +110,7 @@ import AVFoundation
         return captureSession
     }
     
-    @objc public func switchCamera(for mediaType: AVMediaType?, position: AVCaptureDevice.Position) -> Void {
+    @objc public func switchCamera(for mediaType: AVMediaType, position: AVCaptureDevice.Position, orientation:AVCaptureVideoOrientation) -> Void {
         self.captureSession.beginConfiguration()
         if let videoInput = self.videoInput {
             self.captureSession.removeInput(videoInput)
@@ -111,13 +125,18 @@ import AVFoundation
         self.videoInput = videoDeviceInput
         if captureSession.canAddInput(videoDeviceInput) {
             captureSession.addInput(videoDeviceInput)
+            let conection = cameraOutput.connection(with: mediaType)
+            conection?.videoOrientation = orientation
         } else {
             print("DeviceCapture Swtich can't add video device input to the session.")
         }
         captureSession.commitConfiguration()
+        setupResolution(preset: self.resolution)
     }
     
     deinit {
         print("DeviceCapture dealloc")
-    }    
+    }
 }
+
+

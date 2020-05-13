@@ -45,6 +45,7 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
         
         setupUIComponents()
         self.mixer.inFrame =  self.mixer.calculateWindowPosition(backgroundViewFrame: self.rtpView.frame, windowViewFrame: self.preview.frame)
+        //        self.mixer.inFrame = CGRect.init(x: 0.39, y: 0.78, width: 0.22, height: 0.22)
         launchDevices()
         startReadVideo()
         configVideoRecorder()
@@ -155,26 +156,41 @@ class ViewController: UIViewController, CaptureDataOutputDelegate {
     //MARK: - Open camera and microphone
     
     func launchDevices(){
-        guard let _ = deviceCapture.launchCamera(for: .video, whichCamera: .front, orientation: .landscapeLeft) else {
+        guard let _ = deviceCapture.launchMicrophone() else {
+            print("Launch microphone device failed")
+            return
+        }
+        
+        let postion: AVCaptureDevice.Position = .front
+        guard let sessoin = deviceCapture.launchCamera(for: .video, whichCamera: postion, orientation: .landscapeLeft, preset: .hd1280x720) else {
             print("Launch camera device failed")
             return
         }
         
-        guard let sessoin = deviceCapture.launchMicrophone() else {
-            print("Launch microphone device failed")
-            return
-        }
         deviceCapture.setSampleBufferDelegate(self, queue:deviceLaunchQueue)
         
         preview.session = sessoin
         let initialVideoOrientation: AVCaptureVideoOrientation = .landscapeLeft
         preview.videoPreviewLayer.connection?.videoOrientation = initialVideoOrientation
-        
         sessoin.startRunning()
+        
+        if postion == .front {
+            // For iOS 12 front camera issue, when start at 1280 X 720, the resolution will auto change to 1920 X 1080
+            // Restart the camera to comfirm the resolution keep 1280 X 720
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                print("Restart the camera")
+                sessoin.stopRunning()
+                self.deviceCapture.setupResolution(preset: .hd1280x720)
+                sessoin.startRunning()
+            }
+        }
     }
     
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         if output == deviceCapture.cameraOutput {
+            let des = CMSampleBufferGetFormatDescription(sampleBuffer)
+            let dim = CMVideoFormatDescriptionGetDimensions(des!)
+            print("sample buffer dimensions:",dim)
             let pixelBuffer = mixFrame(sampleBuffer: sampleBuffer)
             let  pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
             videoSavingQueue.async {
@@ -362,10 +378,10 @@ extension ViewController {
     @objc func switchCamera(sender:UIButton) {
         if sender.tag == 0 {
             sender.tag = 1;
-            self.deviceCapture.switchCamera(for: .video, position: .back)
+            self.deviceCapture.switchCamera(for: .video, position: .back, orientation: .landscapeLeft)
         } else {
             sender.tag = 0;
-            self.deviceCapture.switchCamera(for: .video, position: .front)
+            self.deviceCapture.switchCamera(for: .video, position: .front, orientation: .landscapeLeft)
         }
     }
     
